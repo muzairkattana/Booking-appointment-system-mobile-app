@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -83,6 +84,11 @@ class AppBootstrapService {
     try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
+      );
+      // Explicitly enable offline persistence settings for Cloud Firestore
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
       );
     } on PlatformException catch (error) {
       if (error.message?.contains('Failed to load FirebaseOptions') == true) {

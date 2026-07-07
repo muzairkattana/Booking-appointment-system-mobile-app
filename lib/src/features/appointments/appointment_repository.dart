@@ -1,6 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import '../../models/appointment.dart';
 import '../../services/app_preferences.dart';
@@ -15,7 +19,38 @@ class AppointmentRepository {
   static List<Appointment>? _cachedAppointments;
   static DateTime? _cachedAt;
 
+  bool get _useFirestore {
+    try {
+      return Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<Appointment>> loadAppointments() async {
+    if (_useFirestore) {
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('appointments')
+            .get();
+        final appointments = snapshot.docs
+            .map((doc) => Appointment.fromJson({...doc.data(), 'id': doc.id}))
+            .toList();
+        // Sort in memory (descending scheduledAt) to avoid index-creation requirements in Firestore
+        appointments.sort((a, b) {
+          if (a.scheduledAt == null && b.scheduledAt == null) return 0;
+          if (a.scheduledAt == null) return 1;
+          if (b.scheduledAt == null) return -1;
+          return b.scheduledAt!.compareTo(a.scheduledAt!);
+        });
+        _cachedAppointments = appointments;
+        _cachedAt = DateTime.now();
+        return appointments;
+      } catch (error) {
+        debugPrint('Failed to load appointments from Firestore: $error');
+      }
+    }
+
     final now = DateTime.now();
     if (_cachedAppointments != null && _cachedAt != null && now.difference(_cachedAt!) < _cacheTtl) {
       return List<Appointment>.unmodifiable(_cachedAppointments!);
@@ -47,12 +82,38 @@ class AppointmentRepository {
   }
 
   Future<void> saveAppointment(Appointment appointment) async {
+    if (_useFirestore) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('appointments')
+            .doc(appointment.id)
+            .set(appointment.toJson());
+        final current = _cachedAppointments ?? [];
+        _cachedAppointments = [appointment, ...current];
+        return;
+      } catch (error) {
+        debugPrint('Failed to save appointment to Firestore: $error');
+      }
+    }
     final appointments = await loadAppointments();
     final next = [appointment, ...appointments];
     await _saveAppointments(next);
   }
 
   Future<Appointment?> findById(String id) async {
+    if (_useFirestore) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('appointments')
+            .doc(id)
+            .get();
+        if (doc.exists && doc.data() != null) {
+          return Appointment.fromJson({...doc.data()!, 'id': doc.id});
+        }
+      } catch (error) {
+        debugPrint('Failed to find appointment by id in Firestore: $error');
+      }
+    }
     final appointments = await loadAppointments();
     for (final appointment in appointments) {
       if (appointment.id == id) {
@@ -63,6 +124,22 @@ class AppointmentRepository {
   }
 
   Future<void> updateAppointment(Appointment updatedAppointment) async {
+    if (_useFirestore) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('appointments')
+            .doc(updatedAppointment.id)
+            .set(updatedAppointment.toJson());
+        if (_cachedAppointments != null) {
+          _cachedAppointments = _cachedAppointments!
+              .map((item) => item.id == updatedAppointment.id ? updatedAppointment : item)
+              .toList();
+        }
+        return;
+      } catch (error) {
+        debugPrint('Failed to update appointment in Firestore: $error');
+      }
+    }
     final appointments = await loadAppointments();
     final next = appointments
         .map((item) => item.id == updatedAppointment.id ? updatedAppointment : item)
@@ -71,6 +148,22 @@ class AppointmentRepository {
   }
 
   Future<void> deleteAppointment(String appointmentId) async {
+    if (_useFirestore) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('appointments')
+            .doc(appointmentId)
+            .delete();
+        if (_cachedAppointments != null) {
+          _cachedAppointments = _cachedAppointments!
+              .where((item) => item.id != appointmentId)
+              .toList();
+        }
+        return;
+      } catch (error) {
+        debugPrint('Failed to delete appointment in Firestore: $error');
+      }
+    }
     final appointments = await loadAppointments();
     final next = appointments
         .where((item) => item.id != appointmentId)
