@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -9,15 +10,16 @@ import '../../models/appointment.dart';
 import '../../utils/validators.dart';
 import 'appointment_repository.dart';
 import '../../theme/app_theme.dart';
+import '../../services/repository_providers.dart';
 
-class BookingScreen extends StatefulWidget {
+class BookingScreen extends ConsumerStatefulWidget {
   const BookingScreen({super.key});
 
   @override
-  State<BookingScreen> createState() => _BookingScreenState();
+  ConsumerState<BookingScreen> createState() => _BookingScreenState();
 }
 
-class _BookingScreenState extends State<BookingScreen> with SingleTickerProviderStateMixin {
+class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -25,7 +27,8 @@ class _BookingScreenState extends State<BookingScreen> with SingleTickerProvider
   final _professionController = TextEditingController();
   final _reasonController = TextEditingController();
   final _notesController = TextEditingController();
-  final AppointmentRepository _repository = AppointmentRepository();
+  
+  AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
 
   int _step = 0; // 0=info, 1=schedule, 2=confirm
   String _service = 'Gonstead Adjustment';

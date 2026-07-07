@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/appointment.dart';
+import '../../../services/app_preferences.dart';
 import '../../../theme/app_theme.dart';
 
 class AppShellScaffold extends StatefulWidget {
@@ -32,7 +32,10 @@ class AppShellScaffold extends StatefulWidget {
 
 class _AppShellScaffoldState extends State<AppShellScaffold> {
   static const _navRoutes = ['/dashboard', '/booking', '/payments', '/notes', '/profile'];
+  static const Duration _appointmentsCacheTtl = Duration(seconds: 30);
   int _upcomingCount = 0;
+  List<Appointment>? _cachedAppointments;
+  DateTime? _cachedAppointmentsAt;
 
   int get _navIndex {
     if (widget.currentRoute == null) return 0;
@@ -46,55 +49,63 @@ class _AppShellScaffoldState extends State<AppShellScaffold> {
     _checkUpcomingAppointments();
   }
 
-  Future<void> _checkUpcomingAppointments() async {
+  List<Appointment> _filterUpcomingAppointments(List<Appointment> appointments, {required DateTime now}) {
+    return appointments.where((a) {
+      final d = a.scheduledAt;
+      return d != null &&
+          d.isAfter(now) &&
+          d.difference(now).inHours < 24 &&
+          a.status.toLowerCase() != 'cancelled';
+    }).toList();
+  }
+
+  Future<List<Appointment>> _loadAppointmentsFromPrefs() async {
+    final now = DateTime.now();
+    if (_cachedAppointments != null && _cachedAppointmentsAt != null) {
+      final age = now.difference(_cachedAppointmentsAt!);
+      if (age < _appointmentsCacheTtl) {
+        return _filterUpcomingAppointments(_cachedAppointments!, now: now);
+      }
+    }
+
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       final appointmentsRaw = prefs.getString('clinic_booked_appointments') ?? '[]';
       final List<dynamic> aptJson = jsonDecode(appointmentsRaw);
-      final List<Appointment> appointments = aptJson
+      final appointments = aptJson
           .map((e) => Appointment.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
 
-      final now = DateTime.now();
-      final upcomingCount = appointments.where((a) {
-        final d = a.scheduledAt;
-        return d != null &&
-            d.isAfter(now) &&
-            d.difference(now).inHours < 24 &&
-            a.status.toLowerCase() != 'cancelled';
-      }).length;
+      if (mounted) {
+        setState(() {
+          _cachedAppointments = appointments;
+          _cachedAppointmentsAt = now;
+        });
+      }
+
+      return _filterUpcomingAppointments(appointments, now: now);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _checkUpcomingAppointments() async {
+    try {
+      final appointments = await _loadAppointmentsFromPrefs();
 
       if (mounted) {
         setState(() {
-          _upcomingCount = upcomingCount;
+          _upcomingCount = appointments.length;
         });
       }
     } catch (_) {}
   }
 
   Future<List<Appointment>> _loadUpcomingAppointmentsList() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final appointmentsRaw = prefs.getString('clinic_booked_appointments') ?? '[]';
-      final List<dynamic> aptJson = jsonDecode(appointmentsRaw);
-      final List<Appointment> appointments = aptJson
-          .map((e) => Appointment.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-
-      final now = DateTime.now();
-      final upcoming = appointments.where((a) {
-        final d = a.scheduledAt;
-        return d != null &&
-            d.isAfter(now) &&
-            d.difference(now).inHours < 24 &&
-            a.status.toLowerCase() != 'cancelled';
-      }).toList();
-
-      upcoming.sort((a, b) => a.scheduledAt!.compareTo(b.scheduledAt!));
-      return upcoming;
-    } catch (_) {
-      return [];
-    }
+    final appointments = await _loadAppointmentsFromPrefs();
+    final upcoming = List<Appointment>.from(appointments);
+    upcoming.sort((a, b) => a.scheduledAt!.compareTo(b.scheduledAt!));
+    return upcoming;
   }
 
   void _showNotificationsSheet(BuildContext context) {
@@ -194,7 +205,7 @@ class _AppShellScaffoldState extends State<AppShellScaffold> {
                             leading: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.1),
+                                color: Colors.orange.withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.notifications_active_rounded, color: Colors.orange),
@@ -208,7 +219,7 @@ class _AppShellScaffoldState extends State<AppShellScaffold> {
                               children: [
                                 Text(
                                   '${apt.treatmentType}  •  ${apt.time}',
-                                  style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
+                                  style: GoogleFonts.poppins(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(

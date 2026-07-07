@@ -3,24 +3,26 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/import_export_service.dart';
+import '../../services/app_preferences.dart';
 
 import '../shared/widgets/app_shell_scaffold.dart';
 import '../shared/widgets/premium_card.dart';
 import 'clinical_notes_repository.dart';
 import '../appointments/appointment_repository.dart';
 import '../../theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/repository_providers.dart';
 
-class ClinicalNotesScreen extends StatefulWidget {
+class ClinicalNotesScreen extends ConsumerStatefulWidget {
   const ClinicalNotesScreen({super.key});
 
   @override
-  State<ClinicalNotesScreen> createState() => _ClinicalNotesScreenState();
+  ConsumerState<ClinicalNotesScreen> createState() => _ClinicalNotesScreenState();
 }
 
-class _ClinicalNotesScreenState extends State<ClinicalNotesScreen> {
-  final ClinicalNotesRepository _repository = ClinicalNotesRepository();
+class _ClinicalNotesScreenState extends ConsumerState<ClinicalNotesScreen> {
+  ClinicalNotesRepository get _repository => ref.read(clinicalNotesRepositoryProvider);
   final _patientController = TextEditingController();
   final _noteController = TextEditingController();
   final _searchController = TextEditingController();
@@ -102,7 +104,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen> {
         }
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       await prefs.setString(
         'clinic_clinical_notes',
         jsonEncode(imported.map((item) => item.toJson()).toList()),
@@ -150,7 +152,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen> {
 
   Future<void> _loadNotesAndSuggestions() async {
     final notes = await _repository.loadNotes();
-    final appointments = await AppointmentRepository().loadAppointments();
+    final appointments = await ref.read(appointmentRepositoryProvider).loadAppointments();
     final names = appointments.map((a) => a.patientName.trim()).where((name) => name.isNotEmpty).toSet().toList();
     if (!mounted) return;
     setState(() {

@@ -3,24 +3,26 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/import_export_service.dart';
+import '../../services/app_preferences.dart';
 
 import '../../models/payment.dart';
 import '../shared/widgets/app_shell_scaffold.dart';
 import '../shared/widgets/premium_card.dart';
 import 'payment_repository.dart';
 import '../../theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/repository_providers.dart';
 
-class PaymentScreen extends StatefulWidget {
+class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({super.key});
 
   @override
-  State<PaymentScreen> createState() => _PaymentScreenState();
+  ConsumerState<PaymentScreen> createState() => _PaymentScreenState();
 }
 
-class _PaymentScreenState extends State<PaymentScreen> with SingleTickerProviderStateMixin {
-  final PaymentRepository _repository = PaymentRepository();
+class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTickerProviderStateMixin {
+  PaymentRepository get _repository => ref.read(paymentRepositoryProvider);
   final _patientController = TextEditingController();
   final _amountController = TextEditingController();
   final _paidAmountController = TextEditingController();
@@ -111,7 +113,7 @@ class _PaymentScreenState extends State<PaymentScreen> with SingleTickerProvider
         }
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       await prefs.setString(
         'clinic_patient_payments',
         jsonEncode(imported.map((item) => item.toJson()).toList()),

@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/import_export_service.dart';
+import '../../services/app_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:printing/printing.dart';
@@ -21,6 +21,7 @@ import '../../theme/app_theme.dart';
 import '../payments/payment_repository.dart';
 import '../../models/payment.dart';
 import '../notes/clinical_notes_repository.dart';
+import '../../services/repository_providers.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -30,15 +31,15 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  final AppointmentRepository _repository = AppointmentRepository();
-  final PaymentRepository _paymentRepository = PaymentRepository();
+  AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
+  PaymentRepository get _paymentRepository => ref.read(paymentRepositoryProvider);
   List<Appointment> _appointments = [];
   List<Payment> _payments = [];
   bool _isLoading = true;
 
   Future<void> _exportMasterBackup() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       
       // Parse Appointments
       final appointmentsRaw = prefs.getString('clinic_booked_appointments') ?? '[]';
@@ -141,7 +142,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final excel = await ImportExportService.importExcel(context: context);
       if (excel == null) return;
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
 
       // 1. Import Appointments
       final aptRows = ImportExportService.parseSheet(excel: excel, sheetName: 'Appointments');

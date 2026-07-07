@@ -10,16 +10,19 @@ import '../shared/widgets/premium_card.dart';
 import 'pdf_generator.dart';
 import '../../theme/app_theme.dart';
 
-class AppointmentDetailScreen extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/repository_providers.dart';
+
+class AppointmentDetailScreen extends ConsumerStatefulWidget {
   const AppointmentDetailScreen({super.key, required this.id});
   final String id;
 
   @override
-  State<AppointmentDetailScreen> createState() => _AppointmentDetailScreenState();
+  ConsumerState<AppointmentDetailScreen> createState() => _AppointmentDetailScreenState();
 }
 
-class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
-  final AppointmentRepository _repo = AppointmentRepository();
+class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScreen> {
+  AppointmentRepository get _repo => ref.read(appointmentRepositoryProvider);
   final _noteController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();

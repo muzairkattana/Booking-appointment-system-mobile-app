@@ -63,6 +63,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -150,17 +151,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
                                 ),
                                 validator: Validators.password,
                               ),
-                              const SizedBox(height: 8),
-
-                              // Forgot password
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () => context.go('/forgot-password'),
-                                  child: const Text('Forgot password?'),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 24),
 
                               // Sign in button
                               SizedBox(
@@ -179,32 +170,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
                                       : const Text('Sign In'),
                                 ),
                               ),
-                              const SizedBox(height: 20),
 
-                              // Divider
-                              Row(
-                                children: [
-                                  const Expanded(child: Divider()),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                    child: Text(
-                                      'or',
-                                      style: GoogleFonts.poppins(
-                                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  const Expanded(child: Divider()),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Register link
-                              OutlinedButton(
-                                onPressed: () => context.go('/register'),
-                                child: const Text('Create an Account'),
-                              ),
                             ],
                           ),
                         ),

@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
+import '../../../services/app_preferences.dart';
 import 'dart:io';
 
 import '../auth_providers.dart';
@@ -44,7 +44,7 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
   }
 
   Future<void> _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     final imagePath = prefs.getString('doctor_profile_image');
     final storedPin = prefs.getString('security_pin_code') ?? '';
     final bioEnabled = prefs.getBool('security_biometric_enabled') ?? false;
@@ -165,7 +165,6 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
     }
 
     final cs = Theme.of(context).colorScheme;
-    final size = MediaQuery.of(context).size;
     final authState = ref.watch(authStateProvider);
     final user = authState.asData?.value ?? AppUser(uid: 'doctor-bashir', email: 'drbashir@gct.com', displayName: 'Dr. Bashir Ahmad', phoneNumber: '');
 
@@ -176,11 +175,15 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
         width: 80,
         height: 80,
         fit: BoxFit.cover,
+        cacheWidth: 160,
+        cacheHeight: 160,
         errorBuilder: (context, error, stackTrace) => Image.asset(
           'assets/dr-bashir-photo.jpeg',
           width: 80,
           height: 80,
           fit: BoxFit.cover,
+          cacheWidth: 160,
+          cacheHeight: 160,
           errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 40, color: Colors.white),
         ),
       );
@@ -190,6 +193,8 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
         width: 80,
         height: 80,
         fit: BoxFit.cover,
+        cacheWidth: 160,
+        cacheHeight: 160,
         errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 40, color: Colors.white),
       );
     }

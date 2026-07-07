@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/payment.dart';
+import '../../services/app_preferences.dart';
 
 class PaymentRepository {
-  PaymentRepository() : _prefsFuture = SharedPreferences.getInstance();
+  PaymentRepository() : _prefsFuture = AppPreferences.instance.prefs;
 
   final Future<SharedPreferences> _prefsFuture;
   static const String _paymentsKey = 'clinic_patient_payments';

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:local_auth/local_auth.dart';
+import '../../../services/app_preferences.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/widgets/app_shell_scaffold.dart';
@@ -28,7 +28,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   }
 
   Future<void> _loadPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     setState(() {
       _pinEnabled = prefs.getBool('security_pin_enabled') ?? false;
       _biometricEnabled = prefs.getBool('security_biometric_enabled') ?? false;
@@ -50,7 +50,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
         return;
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       await prefs.setBool('security_pin_enabled', true);
       await prefs.setString('security_pin_code', confirmPin);
       setState(() {
@@ -68,7 +68,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
         return;
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       await prefs.setBool('security_pin_enabled', false);
       await prefs.setBool('security_biometric_enabled', false);
       await prefs.remove('security_pin_code');
@@ -103,7 +103,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
       }
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     await prefs.setBool('security_biometric_enabled', value);
     setState(() {
       _biometricEnabled = value;
@@ -131,7 +131,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     await prefs.setString('security_pin_code', confirmPin);
     setState(() {
       _storedPin = confirmPin;

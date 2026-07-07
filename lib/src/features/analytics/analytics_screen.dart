@@ -7,16 +7,18 @@ import '../appointments/appointment_repository.dart';
 import '../shared/widgets/app_shell_scaffold.dart';
 import '../shared/widgets/premium_card.dart';
 import '../../theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/repository_providers.dart';
 
-class AnalyticsScreen extends StatefulWidget {
+class AnalyticsScreen extends ConsumerStatefulWidget {
   const AnalyticsScreen({super.key});
 
   @override
-  State<AnalyticsScreen> createState() => _AnalyticsScreenState();
+  ConsumerState<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
-class _AnalyticsScreenState extends State<AnalyticsScreen> with SingleTickerProviderStateMixin {
-  final AppointmentRepository _repository = AppointmentRepository();
+class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTickerProviderStateMixin {
+  AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
   List<Appointment> _appointments = [];
   bool _isLoading = true;
   int _selectedFilter = 1; // default: weekly

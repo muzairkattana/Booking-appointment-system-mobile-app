@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../services/app_preferences.dart';
+
 class ClinicalNote {
   final String id;
   final String patientName;
@@ -39,7 +41,7 @@ class ClinicalNote {
 }
 
 class ClinicalNotesRepository {
-  ClinicalNotesRepository() : _prefsFuture = SharedPreferences.getInstance();
+  ClinicalNotesRepository() : _prefsFuture = AppPreferences.instance.prefs;
 
   final Future<SharedPreferences> _prefsFuture;
   static const String _notesKey = 'clinic_clinical_notes';

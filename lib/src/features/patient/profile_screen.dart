@@ -4,15 +4,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/auth/auth_providers.dart';
+import '../../services/app_preferences.dart';
 import '../../models/app_user.dart';
 import '../shared/widgets/app_shell_scaffold.dart';
 import '../shared/widgets/premium_card.dart';
 import '../../theme/theme_mode_provider.dart';
 import '../../theme/app_theme.dart';
 import '../appointments/appointment_repository.dart';
+import '../../services/repository_providers.dart';
 
 class PatientProfileScreen extends ConsumerStatefulWidget {
   const PatientProfileScreen({super.key});
@@ -33,9 +34,9 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
   }
 
   Future<void> _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     final path = prefs.getString('doctor_profile_image');
-    final apts = await AppointmentRepository().loadAppointments();
+    final apts = await ref.read(appointmentRepositoryProvider).loadAppointments();
     final now = DateTime.now();
     final upcoming = apts.where((a) => a.scheduledAt != null && a.scheduledAt!.isAfter(now) && a.status.toLowerCase() != 'cancelled').length;
     if (!mounted) return;
@@ -50,7 +51,7 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
     final picker = ImagePicker();
     final result = await picker.pickImage(source: ImageSource.gallery, maxWidth: 800);
     if (result == null) return;
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     await prefs.setString('doctor_profile_image', result.path);
     if (!mounted) return;
     setState(() => _imagePath = result.path);
@@ -79,9 +80,7 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
     final authState = ref.watch(authStateProvider);
     final themeMode = ref.watch(themeModeProvider);
     final user = authState.asData?.value ?? AppUser(uid: 'guest', email: 'guest@gonstead.com', displayName: 'Guest Patient', phoneNumber: '+92 300 1234567');
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
 
     Widget avatar;
     if (_imagePath != null && _imagePath!.isNotEmpty) {
@@ -90,11 +89,15 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
         width: 100,
         height: 100,
         fit: BoxFit.cover,
+        cacheWidth: 200,
+        cacheHeight: 200,
         errorBuilder: (context, error, stackTrace) => Image.asset(
           'assets/dr-bashir-photo.jpeg',
           width: 100,
           height: 100,
           fit: BoxFit.cover,
+          cacheWidth: 200,
+          cacheHeight: 200,
           errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 50),
         ),
       );
@@ -104,6 +107,8 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
         width: 100,
         height: 100,
         fit: BoxFit.cover,
+        cacheWidth: 200,
+        cacheHeight: 200,
         errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 50),
       );
     }

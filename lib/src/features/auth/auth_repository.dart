@@ -7,10 +7,12 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../firebase_options.dart';
 import '../../models/app_user.dart';
+import '../../services/app_preferences.dart';
 
 class AuthRepository {
-  AuthRepository() : _prefsFuture = SharedPreferences.getInstance() {
+  AuthRepository() : _prefsFuture = AppPreferences.instance.prefs {
     _initDefaultUser();
   }
 
@@ -27,7 +29,9 @@ class AuthRepository {
   Future<bool> _ensureFirebaseInitialized() async {
     try {
       if (Firebase.apps.isNotEmpty) return true;
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
       return Firebase.apps.isNotEmpty;
     } catch (error) {
       // Not available or misconfigured; log and continue with local auth.
@@ -99,33 +103,7 @@ class AuthRepository {
     return null;
   }
 
-  Future<AppUser> signInWithEmail({
-    required String email,
-    required String password,
-  }) async {
-    if (await _ensureFirebaseInitialized()) {
-      try {
-        final credentials = await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-        final firebaseUser = credentials.user!;
-        final user = AppUser(
-          uid: firebaseUser.uid,
-          email: firebaseUser.email ?? '',
-          displayName: firebaseUser.displayName ?? firebaseUser.email ?? 'Patient',
-          phoneNumber: firebaseUser.phoneNumber ?? '',
-        );
-        await _persistUser(user, await _prefsFuture);
-        return user;
-      } on FirebaseAuthException catch (error) {
-        throw Exception(error.message ?? 'Firebase login failed');
-      } catch (error) {
-        // If Firebase isn't configured correctly, fall back to local auth.
-        debugPrint('Firebase sign-in failed, falling back to local auth: $error');
-      }
-    }
-
+  Future<AppUser> _signInLocally(String email, String password) async {
     final prefs = await _prefsFuture;
     final usersJson = prefs.getString(_usersKey);
     final registeredUsers = <String, Map<String, dynamic>>{};
@@ -147,6 +125,46 @@ class AuthRepository {
       ..remove('password'));
     await _persistUser(user, prefs);
     return user;
+  }
+
+  Future<AppUser> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    if (await _ensureFirebaseInitialized()) {
+      try {
+        final credentials = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+        final firebaseUser = credentials.user!;
+        final user = AppUser(
+          uid: firebaseUser.uid,
+          email: firebaseUser.email ?? '',
+          displayName: firebaseUser.displayName ?? firebaseUser.email ?? 'Patient',
+          phoneNumber: firebaseUser.phoneNumber ?? '',
+        );
+        
+        final prefs = await _prefsFuture;
+        await _persistUser(user, prefs);
+        await _saveUserLocally(email, password, user);
+        
+        return user;
+      } on FirebaseAuthException catch (error) {
+        debugPrint('Firebase sign-in failed (code: ${error.code})');
+        try {
+          debugPrint('Trying local auth fallback...');
+          return await _signInLocally(email, password);
+        } catch (_) {
+          throw Exception(error.message ?? 'Firebase login failed');
+        }
+      } catch (error) {
+        debugPrint('Firebase sign-in failed, trying local auth: $error');
+        return _signInLocally(email, password);
+      }
+    }
+
+    return _signInLocally(email, password);
   }
 
   Future<AppUser> registerWithEmail({
@@ -315,11 +333,44 @@ class AuthRepository {
     return user;
   }
 
+  Future<void> _saveUserLocally(String email, String password, AppUser user) async {
+    final prefs = await _prefsFuture;
+    final usersJson = prefs.getString(_usersKey);
+    final registeredUsers = <String, Map<String, dynamic>>{};
+    
+    if (usersJson != null) {
+      try {
+        final decoded = jsonDecode(usersJson) as Map<String, dynamic>;
+        for (final entry in decoded.entries) {
+          registeredUsers[entry.key] = Map<String, dynamic>.from(entry.value as Map);
+        }
+      } catch (_) {}
+    }
+    
+    final normalizedEmail = email.trim().toLowerCase();
+    registeredUsers[normalizedEmail] = {
+      ...user.toJson(),
+      'password': password,
+    };
+    await prefs.setString(_usersKey, jsonEncode(registeredUsers));
+  }
+
   Future<void> _initDefaultUser() async {
     final prefs = await _prefsFuture;
     final usersJson = prefs.getString(_usersKey);
-    if (usersJson == null) {
-      final registeredUsers = <String, Map<String, dynamic>>{};
+    final registeredUsers = <String, Map<String, dynamic>>{};
+    
+    if (usersJson != null) {
+      try {
+        final decoded = jsonDecode(usersJson) as Map<String, dynamic>;
+        for (final entry in decoded.entries) {
+          registeredUsers[entry.key] = Map<String, dynamic>.from(entry.value as Map);
+        }
+      } catch (_) {}
+    }
+    
+    // Ensure default doctor is registered
+    if (!registeredUsers.containsKey('drbashir@gct.com')) {
       final defaultDoctor = AppUser(
         uid: 'doctor-bashir',
         email: 'drbashir@gct.com',
@@ -330,7 +381,36 @@ class AuthRepository {
         ...defaultDoctor.toJson(),
         'password': 'password123',
       };
-      await prefs.setString(_usersKey, jsonEncode(registeredUsers));
     }
+    
+    // Also ensure bashir@gmail.com is registered locally as fallback
+    if (!registeredUsers.containsKey('bashir@gmail.com')) {
+      final gmailDoctor = AppUser(
+        uid: 'doctor-bashir-gmail',
+        email: 'bashir@gmail.com',
+        displayName: 'Dr. Bashir Ahmad',
+        phoneNumber: '+92 304 6996267',
+      );
+      registeredUsers['bashir@gmail.com'] = {
+        ...gmailDoctor.toJson(),
+        'password': 'password123',
+      };
+    }
+    
+    // Also ensure khan@gmail.com is registered locally as fallback
+    if (!registeredUsers.containsKey('khan@gmail.com')) {
+      final khanUser = AppUser(
+        uid: 'user-khan',
+        email: 'khan@gmail.com',
+        displayName: 'Khan',
+        phoneNumber: '',
+      );
+      registeredUsers['khan@gmail.com'] = {
+        ...khanUser.toJson(),
+        'password': 'password123',
+      };
+    }
+
+    await prefs.setString(_usersKey, jsonEncode(registeredUsers));
   }
 }

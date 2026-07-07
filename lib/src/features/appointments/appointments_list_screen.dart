@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/import_export_service.dart';
+import '../../services/app_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../shared/widgets/app_shell_scaffold.dart';
@@ -12,16 +12,18 @@ import '../shared/widgets/premium_card.dart';
 import '../../models/appointment.dart';
 import '../appointments/appointment_repository.dart';
 import '../../theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/repository_providers.dart';
 
-class AppointmentsListScreen extends StatefulWidget {
+class AppointmentsListScreen extends ConsumerStatefulWidget {
   const AppointmentsListScreen({super.key});
 
   @override
-  State<AppointmentsListScreen> createState() => _AppointmentsListScreenState();
+  ConsumerState<AppointmentsListScreen> createState() => _AppointmentsListScreenState();
 }
 
-class _AppointmentsListScreenState extends State<AppointmentsListScreen> with SingleTickerProviderStateMixin {
-  final AppointmentRepository _repository = AppointmentRepository();
+class _AppointmentsListScreenState extends ConsumerState<AppointmentsListScreen> with SingleTickerProviderStateMixin {
+  AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
   List<Appointment> _appointments = [];
   bool _isLoading = true;
   final _searchController = TextEditingController();
@@ -137,7 +139,7 @@ class _AppointmentsListScreenState extends State<AppointmentsListScreen> with Si
         }
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await AppPreferences.instance.prefs;
       await prefs.setString(
         'clinic_booked_appointments',
         jsonEncode(imported.map((item) => item.toJson()).toList()),

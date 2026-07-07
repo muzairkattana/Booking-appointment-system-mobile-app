@@ -1,1 +1,1 @@
-// Legacy file: Treatment Calculator invoice PDF generator (no longer used)
+// Unused and deprecated file - removed for security/cleanup.

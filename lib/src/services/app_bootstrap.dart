@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../firebase_options.dart';
+import 'app_preferences.dart';
 import 'notification_service.dart';
 
 class AppBootstrapService {
@@ -80,7 +81,9 @@ class AppBootstrapService {
 
   static Future<void> _defaultFirebaseInitializer() async {
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
     } on PlatformException catch (error) {
       if (error.message?.contains('Failed to load FirebaseOptions') == true) {
         debugPrint('Firebase configuration is missing at runtime: ${error.message}');
@@ -95,11 +98,11 @@ class AppBootstrapService {
   }
 
   static Future<void> _defaultAuthInitializer() async {
-    await SharedPreferences.getInstance();
+    await AppPreferences.instance.prefs;
   }
 
   static Future<void> _defaultStorageInitializer() async {
-    await SharedPreferences.getInstance();
+    await AppPreferences.instance.prefs;
   }
 
   static Future<void> _defaultNotificationInitializer() async {

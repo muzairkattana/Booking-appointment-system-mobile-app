@@ -5,9 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../features/appointments/booking_screen.dart';
 import '../features/appointments/appointments_list_screen.dart';
 import '../features/analytics/analytics_screen.dart';
-import '../features/auth/screens/forgot_password_screen.dart';
 import '../features/auth/screens/login_screen.dart';
-import '../features/auth/screens/register_screen.dart';
 import '../features/calculator/calculator_screen.dart';
 import '../features/care_tips/care_tips_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
@@ -29,8 +27,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     routes: <GoRoute>[
       GoRoute(path: '/', name: 'splash', builder: (context, state) => const SplashEntryScreen()),
       GoRoute(path: '/login', name: 'login', builder: (context, state) => const LoginScreen()),
-      GoRoute(path: '/forgot-password', name: 'forgotPassword', builder: (context, state) => const ForgotPasswordScreen()),
-      GoRoute(path: '/register', name: 'register', builder: (context, state) => const RegisterScreen()),
       GoRoute(path: '/dashboard', name: 'dashboard', builder: (context, state) => const DashboardScreen()),
       GoRoute(path: '/profile', name: 'profile', builder: (context, state) => const PatientProfileScreen()),
       GoRoute(path: '/booking', name: 'booking', builder: (context, state) => const BookingScreen()),

@@ -4,7 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../services/app_preferences.dart';
 import '../../../theme/app_theme.dart';
 
 class SplashEntryScreen extends StatefulWidget {
@@ -50,7 +50,7 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
       firebaseSignedIn = false;
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await AppPreferences.instance.prefs;
     final storedUser = prefs.getString('local_auth_current_user');
     final pinEnabled = prefs.getBool('security_pin_enabled') ?? false;
     final hasLocalUser = storedUser != null && storedUser.isNotEmpty;
