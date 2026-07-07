@@ -12,8 +12,15 @@ class Appointment {
   final String cancellationReason;
   final DateTime? updatedAt;
   final bool isEmergency;
-
   final String patientProfession;
+
+  // New Clinical Report Fields
+  final int? painLevel;
+  final String bloodPressure;
+  final int? pulseRate;
+  final String adjustedSegments;
+  final String prescribedExercises;
+  final String nextFollowUp;
 
   Appointment({
     required this.id,
@@ -30,6 +37,12 @@ class Appointment {
     this.updatedAt,
     this.isEmergency = false,
     this.patientProfession = '',
+    this.painLevel,
+    this.bloodPressure = '',
+    this.pulseRate,
+    this.adjustedSegments = '',
+    this.prescribedExercises = '',
+    this.nextFollowUp = '',
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
@@ -48,6 +61,12 @@ class Appointment {
       updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
       isEmergency: json['isEmergency'] == true || json['isEmergency'] == 'true',
       patientProfession: json['patientProfession']?.toString() ?? '',
+      painLevel: json['painLevel'] != null ? int.tryParse(json['painLevel'].toString()) : null,
+      bloodPressure: json['bloodPressure']?.toString() ?? '',
+      pulseRate: json['pulseRate'] != null ? int.tryParse(json['pulseRate'].toString()) : null,
+      adjustedSegments: json['adjustedSegments']?.toString() ?? '',
+      prescribedExercises: json['prescribedExercises']?.toString() ?? '',
+      nextFollowUp: json['nextFollowUp']?.toString() ?? '',
     );
   }
 
@@ -67,6 +86,12 @@ class Appointment {
       'updatedAt': updatedAt?.toIso8601String(),
       'isEmergency': isEmergency,
       'patientProfession': patientProfession,
+      'painLevel': painLevel,
+      'bloodPressure': bloodPressure,
+      'pulseRate': pulseRate,
+      'adjustedSegments': adjustedSegments,
+      'prescribedExercises': prescribedExercises,
+      'nextFollowUp': nextFollowUp,
     };
   }
 
@@ -84,6 +109,12 @@ class Appointment {
     DateTime? updatedAt,
     bool? isEmergency,
     String? patientProfession,
+    int? painLevel,
+    String? bloodPressure,
+    int? pulseRate,
+    String? adjustedSegments,
+    String? prescribedExercises,
+    String? nextFollowUp,
   }) {
     return Appointment(
       id: id,
@@ -100,6 +131,12 @@ class Appointment {
       updatedAt: updatedAt ?? this.updatedAt,
       isEmergency: isEmergency ?? this.isEmergency,
       patientProfession: patientProfession ?? this.patientProfession,
+      painLevel: painLevel ?? this.painLevel,
+      bloodPressure: bloodPressure ?? this.bloodPressure,
+      pulseRate: pulseRate ?? this.pulseRate,
+      adjustedSegments: adjustedSegments ?? this.adjustedSegments,
+      prescribedExercises: prescribedExercises ?? this.prescribedExercises,
+      nextFollowUp: nextFollowUp ?? this.nextFollowUp,
     );
   }
 }

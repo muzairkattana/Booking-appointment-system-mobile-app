@@ -28,6 +28,16 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _treatmentController = TextEditingController();
+  
+  // Clinical report field controllers
+  final _bpController = TextEditingController();
+  final _pulseController = TextEditingController();
+  final _segmentsController = TextEditingController();
+  final _exercisesController = TextEditingController();
+  final _followUpController = TextEditingController();
+  final _professionController = TextEditingController();
+  double _painLevel = 0.0;
+
   final _formKey = GlobalKey<FormState>();
 
   Appointment? _appointment;
@@ -49,6 +59,12 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
     _phoneController.dispose();
     _emailController.dispose();
     _treatmentController.dispose();
+    _bpController.dispose();
+    _pulseController.dispose();
+    _segmentsController.dispose();
+    _exercisesController.dispose();
+    _followUpController.dispose();
+    _professionController.dispose();
     super.dispose();
   }
 
@@ -64,6 +80,16 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       _treatmentController.text = apt?.treatmentType ?? '';
       _statusValue = apt?.status ?? 'Pending';
       _scheduledAt = apt?.scheduledAt;
+      
+      // Initialize clinical assessment fields
+      _painLevel = apt?.painLevel?.toDouble() ?? 0.0;
+      _bpController.text = apt?.bloodPressure ?? '';
+      _pulseController.text = apt?.pulseRate?.toString() ?? '';
+      _segmentsController.text = apt?.adjustedSegments ?? '';
+      _exercisesController.text = apt?.prescribedExercises ?? '';
+      _followUpController.text = apt?.nextFollowUp ?? '';
+      _professionController.text = apt?.patientProfession ?? '';
+      
       _isLoading = false;
     });
   }
@@ -77,6 +103,13 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       treatmentType: _treatmentController.text.trim(),
       status: _statusValue,
       scheduledAt: _scheduledAt ?? _appointment!.scheduledAt,
+      painLevel: _painLevel.round(),
+      bloodPressure: _bpController.text.trim(),
+      pulseRate: int.tryParse(_pulseController.text.trim()),
+      adjustedSegments: _segmentsController.text.trim(),
+      prescribedExercises: _exercisesController.text.trim(),
+      nextFollowUp: _followUpController.text.trim(),
+      patientProfession: _professionController.text.trim(),
       updatedAt: DateTime.now(),
     );
     await _repo.updateAppointment(updated);
@@ -193,7 +226,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
           const SizedBox(height: 14),
 
           // Quick action buttons
-          if (!_isEditing)
+          if (!_isEditing) ...[
             Row(children: [
               _QuickBtn(icon: Icons.check_circle_outline_rounded, label: 'Confirm', color: AppColors.statusConfirmed, onTap: () => _updateStatus('Confirmed')),
               const SizedBox(width: 10),
@@ -201,6 +234,84 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
               const SizedBox(width: 10),
               _QuickBtn(icon: Icons.picture_as_pdf_rounded, label: 'PDF', color: cs.primary, onTap: _generatePdf),
             ]),
+            const SizedBox(height: 16),
+            Text('Clinical Assessment & Treatment', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(height: 10),
+            PremiumCard(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Vitals row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildClinicalIndicator(
+                          icon: Icons.favorite_rounded,
+                          label: 'Pulse Rate',
+                          value: apt.pulseRate != null ? '${apt.pulseRate} bpm' : 'Not recorded',
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildClinicalIndicator(
+                          icon: Icons.speed_rounded,
+                          label: 'Blood Pressure',
+                          value: apt.bloodPressure.isNotEmpty ? apt.bloodPressure : 'Not recorded',
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Pain score visual indicator
+                  Text('Pain Severity (VAS)', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: cs.onSurface.withValues(alpha: 0.5))),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: (apt.painLevel ?? 0) / 10,
+                            minHeight: 8,
+                            backgroundColor: cs.surfaceVariant,
+                            color: _getPainColor(apt.painLevel ?? 0),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${apt.painLevel ?? 0}/10',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: _getPainColor(apt.painLevel ?? 0)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  // Spinal Adjustments
+                  _DetailRow(
+                    icon: Icons.accessibility_new_rounded,
+                    label: 'Adjustments',
+                    value: apt.adjustedSegments.isNotEmpty ? apt.adjustedSegments : 'No segments recorded',
+                  ),
+                  // Prescribed Exercises
+                  _DetailRow(
+                    icon: Icons.directions_run_rounded,
+                    label: 'Exercises',
+                    value: apt.prescribedExercises.isNotEmpty ? apt.prescribedExercises : 'None prescribed',
+                  ),
+                  // Follow up
+                  _DetailRow(
+                    icon: Icons.next_plan_outlined,
+                    label: 'Follow-up',
+                    value: apt.nextFollowUp.isNotEmpty ? apt.nextFollowUp : 'As needed',
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 16),
           Text('Clinical Note', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15)),
@@ -297,6 +408,17 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
           const SizedBox(height: 10),
           TextFormField(controller: _emailController, decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.mail_outline_rounded))),
           const SizedBox(height: 10),
+          _buildDropdownTextField(
+            controller: _professionController,
+            labelText: 'Profession',
+            prefixIcon: Icons.work_outline_rounded,
+            options: [
+              'Engineer', 'Doctor', 'Teacher', 'Student', 'Office Worker', 'Driver', 'Laborer', 'Retired', 'Housewife',
+              'Businessman', 'Nurse', 'Salesperson', 'Accountant', 'Builder/Mason', 'Farmer', 'Unemployed', 'Self-employed',
+              'Artist', 'Software Developer', 'Security Guard', 'Police Officer', 'Soldier', 'Tailor', 'Shopkeeper', 'Chef', 'Other'
+            ],
+          ),
+          const SizedBox(height: 10),
           TextFormField(controller: _treatmentController, decoration: const InputDecoration(labelText: 'Treatment', prefixIcon: Icon(Icons.medical_services_outlined))),
           const SizedBox(height: 10),
           OutlinedButton.icon(
@@ -311,13 +433,214 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
             items: ['Pending', 'Confirmed', 'Completed', 'Cancelled'].map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins()))).toList(),
             onChanged: (v) => setState(() => _statusValue = v ?? _statusValue),
           ),
-          const SizedBox(height: 14),
+          
+          const SizedBox(height: 18),
+          const Divider(),
+          const SizedBox(height: 12),
+          Text('Clinical Assessment & Treatment', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 12),
+          
+          // Pain level slider
+          Row(
+            children: [
+              Text('Pain Level: ', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+              Text('${_painLevel.round()}/10', style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: _getPainColor(_painLevel.round()))),
+            ],
+          ),
+          Slider(
+            value: _painLevel,
+            min: 0,
+            max: 10,
+            divisions: 10,
+            activeColor: _getPainColor(_painLevel.round()),
+            onChanged: (v) => setState(() => _painLevel = v),
+          ),
+          const SizedBox(height: 10),
+
+          // Vitals (BP & Pulse)
+          Row(
+            children: [
+              Expanded(
+                child: _buildDropdownTextField(
+                  controller: _bpController,
+                  labelText: 'Blood Pressure',
+                  prefixIcon: Icons.speed_rounded,
+                  hintText: 'e.g. 120/80',
+                  options: [
+                    '120/80 (Normal)', '110/70 (Optimal)', '115/75 (Healthy)', '100/60 (Hypotension)',
+                    '130/85 (Prehypertension)', '135/85 (Prehypertension)', '140/90 (Stage 1)',
+                    '145/90 (Stage 1)', '150/95 (Stage 2)', '160/100 (Stage 2)', '180/120 (Hypertensive Crisis)'
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildDropdownTextField(
+                  controller: _pulseController,
+                  labelText: 'Pulse (bpm)',
+                  prefixIcon: Icons.favorite_rounded,
+                  keyboardType: TextInputType.number,
+                  hintText: 'e.g. 72',
+                  options: [
+                    '50 (Bradycardia/Athlete)', '55', '60 (Normal)', '65', '70', '72',
+                    '75', '80', '85', '90', '95', '100 (Tachycardia)', '105', '110'
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Spinal segments adjusted
+          _buildDropdownTextField(
+            controller: _segmentsController,
+            labelText: 'Adjusted Spinal Segments',
+            prefixIcon: Icons.accessibility_new_rounded,
+            hintText: 'e.g. C2, L5, Pelvis',
+            options: [
+              'C1 (Atlas)', 'C2 (Axis)', 'C3', 'C4', 'C5', 'C6', 'C7', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8',
+              'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'Sacrum', 'Coccyx', 'Pelvis', 'Left Ilium', 'Right Ilium',
+              'Occiput', 'Cervicothoracic Junction', 'Thoracolumbar Junction', 'Lumbosacral Junction', 'Sacroiliac (SI) Joint', 'Full Spine Adjustment'
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Quick Tags
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: ['Cervical', 'Thoracic', 'Lumbar', 'Sacrum', 'Pelvis', 'C2', 'T4', 'L5'].map((tag) {
+              final isSelected = _segmentsController.text.contains(tag);
+              return ActionChip(
+                label: Text(tag, style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600)),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                backgroundColor: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : null,
+                onPressed: () {
+                  final current = _segmentsController.text.trim();
+                  setState(() {
+                    if (current.isEmpty) {
+                      _segmentsController.text = tag;
+                    } else if (current.contains(tag)) {
+                      _segmentsController.text = current
+                          .split(',')
+                          .map((s) => s.trim())
+                          .where((s) => s != tag)
+                          .join(', ');
+                    } else {
+                      _segmentsController.text = '$current, $tag';
+                    }
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+
+          // Exercises
+          _buildDropdownTextField(
+            controller: _exercisesController,
+            labelText: 'Prescribed Exercises / Care Tips',
+            prefixIcon: Icons.directions_run_rounded,
+            options: [
+              'Neck Retractions / Chin Tucks (3x daily)',
+              'Hamstring Stretch (2x daily)',
+              'Cat-Cow Stretch (10 reps)',
+              'Child\'s Pose (30 sec hold)',
+              'Postural Correction Exercises',
+              'Lumbar Extension Stretch (McKenzie)',
+              'Pelvic Tilts (15 reps)',
+              'Ice Pack on affected area (15 mins on/off)',
+              'Heat Pack to relax muscles (20 mins)',
+              'Ergonomic chair setup adjustment',
+              'Avoid heavy lifting / bending forward',
+              'Take active walking breaks every 45 mins',
+              'Perform gentle neck rolls',
+              'Core strengthening (Planks/Bird-dog)',
+              'Scapular Squeezes (15 reps)',
+              'Pectoralis Stretch in doorway',
+              'Stay hydrated & sleep on back/side'
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Follow-up
+          _buildDropdownTextField(
+            controller: _followUpController,
+            labelText: 'Next Follow-up Plan',
+            prefixIcon: Icons.next_plan_outlined,
+            hintText: 'e.g. 1 week, as needed',
+            options: [
+              'Tomorrow', '2 days', '3 days', '5 days', '1 week', '10 days', '2 weeks',
+              '3 weeks', '4 weeks', '6 weeks', '2 months', '3 months', 'Maintenance (Monthly)',
+              'Wellness Checkup', 'As needed (PRN)', 'Discharged from care'
+            ],
+          ),
+          const SizedBox(height: 18),
+          
           Row(children: [
             Expanded(child: OutlinedButton(onPressed: () => setState(() => _isEditing = false), child: const Text('Cancel'))),
             const SizedBox(width: 12),
             Expanded(child: ElevatedButton(onPressed: _saveEdits, child: const Text('Save'))),
           ]),
         ],
+      ),
+    );
+  }
+
+  Color _getPainColor(int score) {
+    if (score <= 3) return Colors.green;
+    if (score <= 6) return Colors.orange;
+    return Colors.red;
+  }
+
+  Widget _buildClinicalIndicator({required IconData icon, required String label, required String value, required Color color}) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: GoogleFonts.poppins(fontSize: 10, color: cs.onSurface.withValues(alpha: 0.5))),
+              Text(value, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdownTextField({
+    required TextEditingController controller,
+    required String labelText,
+    required IconData prefixIcon,
+    required List<String> options,
+    TextInputType keyboardType = TextInputType.text,
+    String? hintText,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: Icon(prefixIcon),
+        suffixIcon: PopupMenuButton<String>(
+          icon: const Icon(Icons.arrow_drop_down_rounded, size: 28),
+          onSelected: (val) {
+            controller.text = val;
+          },
+          itemBuilder: (BuildContext context) {
+            return options.map((String choice) {
+              return PopupMenuItem<String>(
+                value: choice,
+                child: Text(choice, style: GoogleFonts.poppins(fontSize: 13)),
+              );
+            }).toList();
+          },
+        ),
       ),
     );
   }
