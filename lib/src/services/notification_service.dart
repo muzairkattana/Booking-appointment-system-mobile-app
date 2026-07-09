@@ -3,15 +3,61 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 import '../routes/app_router.dart';
 
 // Background message handler required by firebase_messaging
 Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
-  // Note: keep this handler lightweight. Android/iOS background notifications
-  // should be handled by the platform when possible. This is a fallback to
-  // show a local notification when a data message arrives in background.
-  // Flutter isolates are limited here; we intentionally keep logic minimal.
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {}
+
+  final data = message.data;
+  final notification = message.notification;
+  String? title = notification?.title;
+  String? body = notification?.body;
+
+  if (title == null || body == null) {
+    title = data['title'] ?? data['notification_title'] ?? 'GCT Clinic Alert';
+    body = data['body'] ?? data['notification_body'] ?? 'You have a new update.';
+  }
+
+  final localNotifications = FlutterLocalNotificationsPlugin();
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  final iosInit = DarwinInitializationSettings();
+  final initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
+  await localNotifications.initialize(initSettings);
+
+  const androidDetails = AndroidNotificationDetails(
+    'gct_channel_01',
+    'GCT Notifications',
+    channelDescription: 'General notifications for GCT app',
+    importance: Importance.max,
+    priority: Priority.high,
+  );
+  const iosDetails = DarwinNotificationDetails();
+  final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+  String? payload;
+  final appointmentId = data['appointmentId'] ?? data['appointment_id'];
+  if (appointmentId != null && appointmentId.toString().isNotEmpty) {
+    payload = '/appointment/${appointmentId.toString()}';
+  } else {
+    final screen = data['screen']?.toString().toLowerCase();
+    if (screen != null) {
+      payload = '/$screen';
+    }
+  }
+
+  await localNotifications.show(
+    0,
+    title,
+    body,
+    details,
+    payload: payload,
+  );
 }
 
 class NotificationService {
@@ -24,6 +70,7 @@ class NotificationService {
 
   Future<void> init() async {
     try {
+      tz.initializeTimeZones();
       // Configure Firebase Messaging only if Firebase is initialized.
       try {
         if (Firebase.apps.isNotEmpty) {
@@ -46,11 +93,21 @@ class NotificationService {
       final initSettings = InitializationSettings(android: androidInit, iOS: iosInit, macOS: null);
 
       await _local.initialize(
-        settings: initSettings,
+        initSettings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
           _handleNotificationResponse(response);
         },
       );
+
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await _local
+              .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+              ?.requestNotificationsPermission();
+        } catch (e) {
+          if (kDebugMode) print('Failed to request Android notification permission: $e');
+        }
+      }
 
       // Foreground message handler to display local notification
       FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
@@ -72,6 +129,21 @@ class NotificationService {
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage msg) {
         _navigateToRoute(_routeFromMessage(msg));
       });
+
+      // Handle message that opened the app when terminated (FCM)
+      final initialMessage = await _fcm?.getInitialMessage();
+      if (initialMessage != null) {
+        _navigateToRoute(_routeFromMessage(initialMessage));
+      }
+
+      // Handle message that opened the app when terminated (Local Notification)
+      final launchDetails = await _local.getNotificationAppLaunchDetails();
+      if (launchDetails != null && launchDetails.didNotificationLaunchApp) {
+        final payload = launchDetails.notificationResponse?.payload;
+        if (payload != null && payload.isNotEmpty) {
+          _navigateToRoute(payload);
+        }
+      }
     } catch (e) {
       if (kDebugMode) print('Notification initialization failed: $e');
     }
@@ -89,11 +161,11 @@ class NotificationService {
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _local.show(
-      id: 0,
-      title: title,
-      body: body,
+      0,
+      title,
+      body,
+      details,
       payload: payload,
-      notificationDetails: details,
     );
   }
 
@@ -134,6 +206,17 @@ class NotificationService {
   }
 
   void _navigateToRoute(String route) {
+    _performNavigation(route);
+  }
+
+  Future<void> _performNavigation(String route) async {
+    int attempts = 0;
+    // Wait until navigator context is loaded and ready
+    while (appNavigatorKey.currentContext == null && attempts < 100) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+
     final context = appNavigatorKey.currentContext;
     if (context == null) {
       if (kDebugMode) print('Unable to navigate: app context is not ready yet.');
@@ -144,6 +227,49 @@ class NotificationService {
       GoRouter.of(context).go(route);
     } catch (e) {
       if (kDebugMode) print('Failed to navigate to route "$route": $e');
+    }
+  }
+
+  Future<void> scheduleLocalNotification({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledDate,
+    String? payload,
+  }) async {
+    if (scheduledDate.isBefore(DateTime.now())) {
+      return;
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      'gct_scheduled_channel',
+      'GCT Reminders',
+      channelDescription: 'Scheduled reminders for GCT app',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+    const iosDetails = DarwinNotificationDetails();
+    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+    final tzScheduledDate = tz.TZDateTime.from(scheduledDate.toUtc(), tz.UTC);
+
+    await _local.zonedSchedule(
+      id,
+      title,
+      body,
+      tzScheduledDate,
+      details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      payload: payload,
+    );
+  }
+
+  Future<void> cancelNotification(int id) async {
+    try {
+      await _local.cancel(id);
+    } catch (e) {
+      if (kDebugMode) print('Failed to cancel notification $id: $e');
     }
   }
 }

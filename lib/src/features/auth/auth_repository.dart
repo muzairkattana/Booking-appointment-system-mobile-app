@@ -15,6 +15,7 @@ import '../../services/app_preferences.dart';
 class AuthRepository {
   AuthRepository() : _prefsFuture = AppPreferences.instance.prefs {
     _initDefaultUser();
+    _startSessionValidationTimer();
   }
 
   final Future<SharedPreferences> _prefsFuture;
@@ -25,6 +26,25 @@ class AuthRepository {
   static const String _usersKey = 'local_auth_registered_users';
 
   AppUser? _cachedUser;
+  Timer? _sessionValidationTimer;
+
+  void _startSessionValidationTimer() {
+    _sessionValidationTimer?.cancel();
+    _sessionValidationTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      try {
+        if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null) {
+          try {
+            await FirebaseAuth.instance.currentUser!.reload();
+          } on FirebaseAuthException catch (e) {
+            debugPrint('Periodic Firebase session check failed (code: ${e.code})');
+            if (e.code == 'user-not-found' || e.code == 'user-disabled' || e.code == 'invalid-credential') {
+              await signOut();
+            }
+          }
+        }
+      } catch (_) {}
+    });
+  }
 
   /// Try to initialize Firebase on-demand. Returns true when Firebase is available.
   Future<bool> _ensureFirebaseInitialized() async {
@@ -53,15 +73,15 @@ class AuthRepository {
   }
 
   Stream<AppUser?> authStateChanges() {
-    final localUserFuture = _loadPersistedUser();
-    localUserFuture.then(_authStateController.add);
+    // Load initial user state
+    _loadPersistedUser().then(_authStateController.add);
 
     // Attempt to initialize Firebase in background and subscribe to auth changes if available.
     _ensureFirebaseInitialized().then((available) {
       if (!available) return;
       FirebaseAuth.instance.authStateChanges().listen((firebaseUser) async {
         if (firebaseUser == null) {
-          final localUser = await localUserFuture;
+          final localUser = await _loadPersistedUser();
           if (localUser != null) {
             _cachedUser = localUser;
             _authStateController.add(localUser);
@@ -330,6 +350,19 @@ class AuthRepository {
     }
 
     final user = AppUser.fromJson(jsonDecode(storedUser) as Map<String, dynamic>);
+    // If Firebase is enabled, but we are not logged into Firebase,
+    // and the stored user is not one of our predefined local fallback accounts,
+    // then this stored session is invalid (the Firebase user is signed out/deleted).
+    if (_firebaseEnabled && FirebaseAuth.instance.currentUser == null) {
+      final email = user.email.toLowerCase();
+      final isLocalFallback = email == 'drbashir@gct.com' || email == 'bashir@gmail.com' || email == 'khan@gmail.com';
+      if (!isLocalFallback) {
+        await prefs.remove(_currentUserKey);
+        _cachedUser = null;
+        return null;
+      }
+    }
+
     _cachedUser = user;
     return user;
   }
@@ -415,4 +448,127 @@ class AuthRepository {
     await prefs.setString(_usersKey, jsonEncode(registeredUsers));
   }
 
+  // --- Staff Portal Access & Credentials ---
+
+  static const String _allowStaffViewKey = 'clinic_allow_staff_view';
+  static const String _staffCredentialsKey = 'clinic_staff_credentials';
+
+  Future<bool> getStaffViewToggle() async {
+    if (await _ensureFirebaseInitialized()) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('settings')
+            .doc('clinic_config')
+            .get();
+        if (doc.exists && doc.data() != null) {
+          final val = doc.data()?['allowStaffView'] != false;
+          final prefs = await _prefsFuture;
+          await prefs.setBool(_allowStaffViewKey, val);
+          return val;
+        }
+      } catch (e) {
+        debugPrint('Failed to get staff toggle online: $e');
+      }
+    }
+    final prefs = await _prefsFuture;
+    return prefs.getBool(_allowStaffViewKey) ?? true;
+  }
+
+  Future<void> setStaffViewToggle(bool enabled) async {
+    final prefs = await _prefsFuture;
+    await prefs.setBool(_allowStaffViewKey, enabled);
+
+    if (await _ensureFirebaseInitialized()) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('settings')
+            .doc('clinic_config')
+            .set({'allowStaffView': enabled}, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Failed to set staff toggle online: $e');
+      }
+    }
+  }
+
+  Future<List<Map<String, String>>> loadStaffCredentials() async {
+    if (await _ensureFirebaseInitialized()) {
+      try {
+        final snapshot = await FirebaseFirestore.instance.collection('staff').get();
+        final list = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'email': doc.id,
+            'password': data['password']?.toString() ?? '',
+          };
+        }).toList();
+
+        // Sync to local cache
+        final prefs = await _prefsFuture;
+        await prefs.setString(_staffCredentialsKey, jsonEncode(list));
+        return list;
+      } catch (e) {
+        debugPrint('Failed to load staff credentials online: $e');
+      }
+    }
+
+    final prefs = await _prefsFuture;
+    final jsonStr = prefs.getString(_staffCredentialsKey);
+    if (jsonStr == null || jsonStr.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(jsonStr) as List;
+      return decoded.map((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        return {
+          'email': map['email']?.toString() ?? '',
+          'password': map['password']?.toString() ?? '',
+        };
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> addStaffCredential(String email, String password) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (await _ensureFirebaseInitialized()) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('staff')
+            .doc(normalizedEmail)
+            .set({
+          'password': password,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint('Failed to save staff credential online: $e');
+      }
+    }
+
+    // Save to local cache
+    final list = await loadStaffCredentials();
+    list.removeWhere((item) => item['email'] == normalizedEmail);
+    list.add({'email': normalizedEmail, 'password': password});
+    final prefs = await _prefsFuture;
+    await prefs.setString(_staffCredentialsKey, jsonEncode(list));
+  }
+
+  Future<void> deleteStaffCredential(String email) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (await _ensureFirebaseInitialized()) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('staff')
+            .doc(normalizedEmail)
+            .delete();
+      } catch (e) {
+        debugPrint('Failed to delete staff credential online: $e');
+      }
+    }
+
+    // Update local cache
+    final list = await loadStaffCredentials();
+    list.removeWhere((item) => item['email'] == normalizedEmail);
+    final prefs = await _prefsFuture;
+    await prefs.setString(_staffCredentialsKey, jsonEncode(list));
+  }
 }

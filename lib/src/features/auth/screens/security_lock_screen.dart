@@ -92,7 +92,11 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
     await Future.delayed(const Duration(milliseconds: 150));
     if (_enteredPin == _storedPin) {
       if (mounted) {
-        context.go('/dashboard');
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop(true);
+        } else {
+          context.go('/dashboard');
+        }
       }
     } else {
       // Trigger shake animation
@@ -132,7 +136,11 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
       );
 
       if (authenticated && mounted) {
-        context.go('/dashboard');
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop(true);
+        } else {
+          context.go('/dashboard');
+        }
         return;
       }
 

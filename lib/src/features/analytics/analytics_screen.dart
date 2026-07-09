@@ -20,7 +20,7 @@ class AnalyticsScreen extends ConsumerStatefulWidget {
 class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTickerProviderStateMixin {
   AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
   List<Appointment> _appointments = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   int _selectedFilter = 1; // default: weekly
   late TabController _tabController;
 

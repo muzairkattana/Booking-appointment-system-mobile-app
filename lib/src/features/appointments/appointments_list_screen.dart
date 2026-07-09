@@ -25,7 +25,7 @@ class AppointmentsListScreen extends ConsumerStatefulWidget {
 class _AppointmentsListScreenState extends ConsumerState<AppointmentsListScreen> with SingleTickerProviderStateMixin {
   AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
   List<Appointment> _appointments = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   final _searchController = TextEditingController();
   String _searchQuery = '';
 

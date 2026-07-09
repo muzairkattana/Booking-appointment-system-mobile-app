@@ -24,6 +24,7 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
   List<Map<String, dynamic>> _appointments = [];
   StreamSubscription? _configSubscription;
   StreamSubscription? _appointmentsSubscription;
+  StreamSubscription? _staffUserSubscription;
 
   @override
   void initState() {
@@ -35,6 +36,7 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
   void dispose() {
     _configSubscription?.cancel();
     _appointmentsSubscription?.cancel();
+    _staffUserSubscription?.cancel();
     super.dispose();
   }
 
@@ -89,6 +91,69 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
     }, onError: (err) {
       debugPrint('Error listening to appointments: $err');
       setState(() => _isLoading = false);
+    });
+
+    // 3. Listen to staff user document for real-time security check (force-logout)
+    _staffUserSubscription = FirebaseFirestore.instance
+        .collection('staff')
+        .doc(widget.staffEmail)
+        .snapshots()
+        .listen((doc) async {
+      if (!mounted) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final localPassword = prefs.getString('offline_password_${widget.staffEmail}');
+      
+      bool mustLogout = false;
+      String logoutReason = '';
+
+      if (!doc.exists || doc.data() == null) {
+        mustLogout = true;
+        logoutReason = 'Your staff account has been deleted by the administrator.';
+      } else {
+        final dbPassword = doc.data()?['password']?.toString() ?? '';
+        if (localPassword != null && dbPassword != localPassword) {
+          mustLogout = true;
+          logoutReason = 'Your password has been changed by the administrator. Please log in again.';
+        }
+      }
+
+      if (mustLogout) {
+        // Clear session
+        await prefs.remove('is_staff_logged_in');
+        await prefs.remove('logged_in_staff_email');
+        if (localPassword != null) {
+          await prefs.remove('offline_password_${widget.staffEmail}');
+        }
+
+        // Cancel subscriptions
+        _configSubscription?.cancel();
+        _appointmentsSubscription?.cancel();
+        _staffUserSubscription?.cancel();
+
+        if (!mounted) return;
+
+        // Show SnackBar
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              logoutReason,
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w500, color: Colors.white),
+            ),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        // Force navigate to Login Screen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const StaffLoginScreen()),
+        );
+      }
+    }, onError: (err) {
+      debugPrint('Error listening to staff user document: $err');
     });
   }
 
@@ -281,7 +346,7 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.between,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
                                       child: Text(

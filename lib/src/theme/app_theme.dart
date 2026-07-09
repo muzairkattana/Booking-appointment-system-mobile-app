@@ -44,6 +44,7 @@ Color statusColor(String status) {
     case 'confirmed': return AppColors.statusConfirmed;
     case 'cancelled': return AppColors.statusCancelled;
     case 'completed': return AppColors.statusCompleted;
+    case 'no show': return const Color(0xFF8B5CF6);
     default: return AppColors.statusPending;
   }
 }
@@ -53,6 +54,7 @@ Color statusBgColor(String status) {
     case 'confirmed': return AppColors.statusConfirmedBg;
     case 'cancelled': return AppColors.statusCancelledBg;
     case 'completed': return AppColors.statusCompletedBg;
+    case 'no show': return const Color(0xFFF3E8FF);
     default: return AppColors.statusPendingBg;
   }
 }

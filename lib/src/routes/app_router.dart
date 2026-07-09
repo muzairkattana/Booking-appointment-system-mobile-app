@@ -17,6 +17,7 @@ import '../features/appointments/appointment_detail_screen.dart';
 import '../features/auth/screens/splash_entry_screen.dart';
 import '../features/auth/screens/security_settings_screen.dart';
 import '../features/auth/screens/security_lock_screen.dart';
+import '../features/auth/screens/staff_management_screen.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -29,7 +30,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', name: 'login', builder: (context, state) => const LoginScreen()),
       GoRoute(path: '/dashboard', name: 'dashboard', builder: (context, state) => const DashboardScreen()),
       GoRoute(path: '/profile', name: 'profile', builder: (context, state) => const PatientProfileScreen()),
-      GoRoute(path: '/booking', name: 'booking', builder: (context, state) => const BookingScreen()),
+      GoRoute(
+        path: '/booking',
+        name: 'booking',
+        builder: (context, state) {
+          final initialData = state.extra as Map<String, dynamic>?;
+          return BookingScreen(initialData: initialData);
+        },
+      ),
       GoRoute(path: '/appointments', name: 'appointments', builder: (context, state) => const AppointmentsListScreen()),
       GoRoute(path: '/analytics', name: 'analytics', builder: (context, state) => const AnalyticsScreen()),
       GoRoute(path: '/payments', name: 'payments', builder: (context, state) => const PaymentScreen()),
@@ -38,6 +46,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/care-tips', name: 'careTips', builder: (context, state) => const CareTipsScreen()),
       GoRoute(path: '/security-settings', name: 'securitySettings', builder: (context, state) => const SecuritySettingsScreen()),
       GoRoute(path: '/security-lock', name: 'securityLock', builder: (context, state) => const SecurityLockScreen()),
+      GoRoute(path: '/staff-management', name: 'staffManagement', builder: (context, state) => const StaffManagementScreen()),
       GoRoute(
         path: '/appointment/:id',
         name: 'appointmentDetail',

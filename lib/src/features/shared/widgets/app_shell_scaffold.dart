@@ -6,6 +6,10 @@ import '../../../models/appointment.dart';
 import '../../../services/app_preferences.dart';
 import '../../../theme/app_theme.dart';
 
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import '../../auth/screens/security_lock_screen.dart';
+
 class AppShellScaffold extends StatefulWidget {
   const AppShellScaffold({
     super.key,
@@ -30,12 +34,13 @@ class AppShellScaffold extends StatefulWidget {
   State<AppShellScaffold> createState() => _AppShellScaffoldState();
 }
 
-class _AppShellScaffoldState extends State<AppShellScaffold> {
+class _AppShellScaffoldState extends State<AppShellScaffold> with WidgetsBindingObserver {
   static const _navRoutes = ['/dashboard', '/booking', '/payments', '/notes', '/profile'];
   static const Duration _appointmentsCacheTtl = Duration(seconds: 30);
   int _upcomingCount = 0;
   List<Appointment>? _cachedAppointments;
   DateTime? _cachedAppointmentsAt;
+  static bool _isLockScreenShowing = false;
 
   int get _navIndex {
     if (widget.currentRoute == null) return 0;
@@ -46,7 +51,60 @@ class _AppShellScaffoldState extends State<AppShellScaffold> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkUpcomingAppointments();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPinLockOnResume();
+    }
+  }
+
+  Future<void> _checkPinLockOnResume() async {
+    if (_isLockScreenShowing) return;
+
+    // Verify user session on resume
+    try {
+      if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null) {
+        try {
+          await FirebaseAuth.instance.currentUser!.reload();
+        } on FirebaseAuthException catch (e) {
+          debugPrint('Firebase session verification on resume failed (code: ${e.code})');
+          if (e.code == 'user-not-found' || e.code == 'user-disabled' || e.code == 'invalid-credential') {
+            await FirebaseAuth.instance.signOut();
+            final prefs = await AppPreferences.instance.prefs;
+            await prefs.remove('local_auth_current_user');
+            if (!mounted) return;
+            context.go('/login');
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+
+    final prefs = await AppPreferences.instance.prefs;
+    final pinEnabled = prefs.getBool('security_pin_enabled') ?? false;
+
+    if (pinEnabled) {
+      _isLockScreenShowing = true;
+      if (!mounted) return;
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<bool>(
+          builder: (context) => const SecurityLockScreen(),
+          fullscreenDialog: true,
+        ),
+      );
+      _isLockScreenShowing = false;
+    }
   }
 
   List<Appointment> _filterUpcomingAppointments(List<Appointment> appointments, {required DateTime now}) {

@@ -45,7 +45,19 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
   Future<void> _handleRedirect() async {
     bool firebaseSignedIn = false;
     try {
-      firebaseSignedIn = Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null;
+      if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null) {
+        try {
+          await FirebaseAuth.instance.currentUser!.reload();
+          firebaseSignedIn = FirebaseAuth.instance.currentUser != null;
+        } on FirebaseAuthException catch (e) {
+          debugPrint('Firebase session validation failed: ${e.code}');
+          if (e.code == 'user-not-found' || e.code == 'user-disabled' || e.code == 'invalid-credential') {
+            await FirebaseAuth.instance.signOut();
+            final prefs = await AppPreferences.instance.prefs;
+            await prefs.remove('local_auth_current_user');
+          }
+        }
+      }
     } catch (_) {
       firebaseSignedIn = false;
     }

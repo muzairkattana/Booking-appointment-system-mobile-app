@@ -254,7 +254,7 @@ class _StaffManagementScreenState extends ConsumerState<StaffManagementScreen> {
 
                 // Credentials Management list header
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       'STAFF LOGIN ACCOUNTS',

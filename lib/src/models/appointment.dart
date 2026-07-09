@@ -22,6 +22,13 @@ class Appointment {
   final String prescribedExercises;
   final String nextFollowUp;
 
+  // Treatment Plan Fields
+  final int? treatmentPlanTotalSessions;
+  final int? sessionNumber;
+
+  // Appointment Duration
+  final int durationMinutes;
+
   Appointment({
     required this.id,
     required this.patientName,
@@ -43,6 +50,9 @@ class Appointment {
     this.adjustedSegments = '',
     this.prescribedExercises = '',
     this.nextFollowUp = '',
+    this.treatmentPlanTotalSessions,
+    this.sessionNumber,
+    this.durationMinutes = 40,
   });
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
@@ -67,6 +77,9 @@ class Appointment {
       adjustedSegments: json['adjustedSegments']?.toString() ?? '',
       prescribedExercises: json['prescribedExercises']?.toString() ?? '',
       nextFollowUp: json['nextFollowUp']?.toString() ?? '',
+      treatmentPlanTotalSessions: json['treatmentPlanTotalSessions'] != null ? int.tryParse(json['treatmentPlanTotalSessions'].toString()) : null,
+      sessionNumber: json['sessionNumber'] != null ? int.tryParse(json['sessionNumber'].toString()) : null,
+      durationMinutes: json['durationMinutes'] != null ? int.tryParse(json['durationMinutes'].toString()) ?? 40 : 40,
     );
   }
 
@@ -92,6 +105,9 @@ class Appointment {
       'adjustedSegments': adjustedSegments,
       'prescribedExercises': prescribedExercises,
       'nextFollowUp': nextFollowUp,
+      'treatmentPlanTotalSessions': treatmentPlanTotalSessions,
+      'sessionNumber': sessionNumber,
+      'durationMinutes': durationMinutes,
     };
   }
 
@@ -115,6 +131,9 @@ class Appointment {
     String? adjustedSegments,
     String? prescribedExercises,
     String? nextFollowUp,
+    int? treatmentPlanTotalSessions,
+    int? sessionNumber,
+    int? durationMinutes,
   }) {
     return Appointment(
       id: id,
@@ -137,6 +156,9 @@ class Appointment {
       adjustedSegments: adjustedSegments ?? this.adjustedSegments,
       prescribedExercises: prescribedExercises ?? this.prescribedExercises,
       nextFollowUp: nextFollowUp ?? this.nextFollowUp,
+      treatmentPlanTotalSessions: treatmentPlanTotalSessions ?? this.treatmentPlanTotalSessions,
+      sessionNumber: sessionNumber ?? this.sessionNumber,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
     );
   }
 }

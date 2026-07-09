@@ -19,7 +19,7 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
   bool _pinEnabled = false;
   bool _biometricEnabled = false;
   String _storedPin = '';
-  bool _isLoading = true;
+  bool _isLoading = false;
 
   @override
   void initState() {

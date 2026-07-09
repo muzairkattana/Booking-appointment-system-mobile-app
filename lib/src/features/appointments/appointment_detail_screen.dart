@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
@@ -12,6 +13,7 @@ import '../../theme/app_theme.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/repository_providers.dart';
+import '../../services/notification_service.dart';
 
 class AppointmentDetailScreen extends ConsumerStatefulWidget {
   const AppointmentDetailScreen({super.key, required this.id});
@@ -36,6 +38,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
   final _exercisesController = TextEditingController();
   final _followUpController = TextEditingController();
   final _professionController = TextEditingController();
+  final _durationController = TextEditingController();
   double _painLevel = 0.0;
 
   final _formKey = GlobalKey<FormState>();
@@ -65,6 +68,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
     _exercisesController.dispose();
     _followUpController.dispose();
     _professionController.dispose();
+    _durationController.dispose();
     super.dispose();
   }
 
@@ -89,9 +93,65 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       _exercisesController.text = apt?.prescribedExercises ?? '';
       _followUpController.text = apt?.nextFollowUp ?? '';
       _professionController.text = apt?.patientProfession ?? '';
+      _durationController.text = apt?.durationMinutes.toString() ?? '40';
       
       _isLoading = false;
     });
+  }
+
+  Future<void> _checkCompletedAndPrompt(Appointment appointment) async {
+    if (appointment.status.toLowerCase() == 'completed' &&
+        appointment.treatmentPlanTotalSessions != null &&
+        appointment.treatmentPlanTotalSessions! > 0) {
+      final currentSession = appointment.sessionNumber ?? 1;
+      final totalSessions = appointment.treatmentPlanTotalSessions!;
+      if (currentSession < totalSessions) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.event_available_rounded, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Schedule Next Session', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 18)),
+                ),
+              ],
+            ),
+            content: Text(
+              'Session $currentSession of $totalSessions is completed!\n\n'
+              'Would you like to schedule the next session (Session ${currentSession + 1} of $totalSessions) right now?',
+              style: GoogleFonts.poppins(fontSize: 14),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Maybe Later'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Schedule Now'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed == true && mounted) {
+          final extraData = {
+            'patientName': appointment.patientName,
+            'phoneNumber': appointment.phoneNumber,
+            'email': appointment.email,
+            'patientProfession': appointment.patientProfession,
+            'treatmentType': appointment.treatmentType,
+            'treatmentPlanTotalSessions': totalSessions,
+            'sessionNumber': currentSession + 1,
+            'durationMinutes': appointment.durationMinutes,
+            'visitReason': 'Follow-up treatment session ${currentSession + 1} of $totalSessions.',
+          };
+          context.push('/booking', extra: extraData);
+        }
+      }
+    }
   }
 
   Future<void> _saveEdits() async {
@@ -110,12 +170,55 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       prescribedExercises: _exercisesController.text.trim(),
       nextFollowUp: _followUpController.text.trim(),
       patientProfession: _professionController.text.trim(),
+      durationMinutes: int.tryParse(_durationController.text.trim()) ?? _appointment!.durationMinutes,
       updatedAt: DateTime.now(),
     );
     await _repo.updateAppointment(updated);
+
+    // Manage scheduled reminder notifications
+    try {
+      // Cancel previous scheduled notifications if date/time changed or no longer active
+      if (updated.scheduledAt != _appointment!.scheduledAt || updated.status.toLowerCase() != 'confirmed') {
+        await NotificationService().cancelNotification(_appointment!.id.hashCode);
+        await NotificationService().cancelNotification(_appointment!.id.hashCode + 1);
+      }
+      
+      // Re-schedule reminder and appointment time notifications if updated to confirmed and scheduledAt is in the future
+      if (updated.status.toLowerCase() == 'confirmed' && updated.scheduledAt != null && updated.scheduledAt!.isAfter(DateTime.now())) {
+        final reminderTime = updated.scheduledAt!.subtract(const Duration(hours: 2));
+        if (reminderTime.isAfter(DateTime.now())) {
+          await NotificationService().scheduleLocalNotification(
+            id: updated.id.hashCode,
+            title: 'Upcoming Appointment Reminder ⏰',
+            body: 'Appointment with ${updated.patientName} is scheduled in 2 hours.',
+            scheduledDate: reminderTime,
+            payload: '/appointment/${updated.id}',
+          );
+        }
+
+        await NotificationService().scheduleLocalNotification(
+          id: updated.id.hashCode + 1,
+          title: 'Appointment Starting Now! 📅',
+          body: 'Your appointment with ${updated.patientName} is starting now.',
+          scheduledDate: updated.scheduledAt!,
+          payload: '/appointment/${updated.id}',
+        );
+      }
+
+      // Show instant confirmation notification
+      await NotificationService().showLocalNotification(
+        'Appointment Updated ✏️',
+        'Patient: ${updated.patientName} (${updated.status})',
+        payload: '/appointment/${updated.id}',
+      );
+    } catch (e) {
+      debugPrint('Notification setup failed: $e');
+    }
+
     if (!mounted) return;
     setState(() { _appointment = updated; _isEditing = false; });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Appointment updated')));
+    await _checkCompletedAndPrompt(updated);
   }
 
   Future<void> _saveNote() async {
@@ -131,9 +234,50 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
     if (_appointment == null) return;
     final updated = _appointment!.copyWith(status: newStatus, updatedAt: DateTime.now());
     await _repo.updateAppointment(updated);
+
+    try {
+      // Cancel scheduled notifications if status is cancelled/completed/no show
+      if (newStatus.toLowerCase() == 'cancelled' ||
+          newStatus.toLowerCase() == 'completed' ||
+          newStatus.toLowerCase() == 'no show') {
+        await NotificationService().cancelNotification(updated.id.hashCode);
+        await NotificationService().cancelNotification(updated.id.hashCode + 1);
+      } else if (newStatus.toLowerCase() == 'confirmed' && updated.scheduledAt != null && updated.scheduledAt!.isAfter(DateTime.now())) {
+        // Reschedule notifications if it was changed back to Confirmed
+        final reminderTime = updated.scheduledAt!.subtract(const Duration(hours: 2));
+        if (reminderTime.isAfter(DateTime.now())) {
+          await NotificationService().scheduleLocalNotification(
+            id: updated.id.hashCode,
+            title: 'Upcoming Appointment Reminder ⏰',
+            body: 'Appointment with ${updated.patientName} is scheduled in 2 hours.',
+            scheduledDate: reminderTime,
+            payload: '/appointment/${updated.id}',
+          );
+        }
+
+        await NotificationService().scheduleLocalNotification(
+          id: updated.id.hashCode + 1,
+          title: 'Appointment Starting Now! 📅',
+          body: 'Your appointment with ${updated.patientName} is starting now.',
+          scheduledDate: updated.scheduledAt!,
+          payload: '/appointment/${updated.id}',
+        );
+      }
+
+      // Show instant notification
+      await NotificationService().showLocalNotification(
+        'Status Updated 🔄',
+        '${updated.patientName}\'s appointment status changed to $newStatus.',
+        payload: '/appointment/${updated.id}',
+      );
+    } catch (e) {
+      debugPrint('Notification update failed: $e');
+    }
+
     if (!mounted) return;
     setState(() => _appointment = updated);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Status → $newStatus')));
+    await _checkCompletedAndPrompt(updated);
   }
 
   Future<void> _deleteAppointment() async {
@@ -149,7 +293,23 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       ),
     );
     if (confirmed != true || _appointment == null) return;
-    await _repo.deleteAppointment(_appointment!.id);
+    
+    final oldAptId = _appointment!.id;
+    await _repo.deleteAppointment(oldAptId);
+
+    try {
+      // Cancel scheduled reminder
+      await NotificationService().cancelNotification(oldAptId.hashCode);
+      // Show instant notification
+      await NotificationService().showLocalNotification(
+        'Appointment Deleted 🗑️',
+        'Appointment for ${_appointment!.patientName} has been deleted.',
+        payload: '/dashboard',
+      );
+    } catch (e) {
+      debugPrint('Notification delete failed: $e');
+    }
+
     if (!mounted) return;
     Navigator.pop(context);
   }
@@ -176,6 +336,43 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
     );
   }
 
+  Future<void> _generateAllSessionsPdf() async {
+    if (_appointment == null) return;
+    final allApts = await _repo.loadAppointments();
+    
+    // Find all sessions for this patient
+    final patientName = _appointment!.patientName.toLowerCase();
+    final patientPhone = _appointment!.phoneNumber;
+    final patientSessions = allApts.where((a) {
+      final nameMatch = a.patientName.toLowerCase() == patientName;
+      final phoneMatch = patientPhone.isNotEmpty && a.phoneNumber == patientPhone;
+      return nameMatch || phoneMatch;
+    }).toList();
+
+    // Sort by scheduled date
+    patientSessions.sort((a, b) {
+      if (a.scheduledAt == null && b.scheduledAt == null) return 0;
+      if (a.scheduledAt == null) return 1;
+      if (b.scheduledAt == null) return -1;
+      return a.scheduledAt!.compareTo(b.scheduledAt!);
+    });
+
+    if (patientSessions.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No sessions found for this patient.')),
+        );
+      }
+      return;
+    }
+
+    final bytes = await generateAllSessionsReportPdf(patientSessions);
+    await Printing.layoutPdf(
+      onLayout: (format) async => bytes,
+      name: '${_appointment!.patientName}_ALL_SESSIONS_REPORT',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return Scaffold(body: Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)));
@@ -199,6 +396,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
             if (v == 'confirm') await _updateStatus('Confirmed');
             if (v == 'complete') await _updateStatus('Completed');
             if (v == 'cancel') await _updateStatus('Cancelled');
+            if (v == 'no_show') await _updateStatus('No Show');
             if (v == 'delete') await _deleteAppointment();
           },
           itemBuilder: (_) => [
@@ -206,6 +404,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
             const PopupMenuItem(value: 'confirm', child: Text('Mark Confirmed')),
             const PopupMenuItem(value: 'complete', child: Text('Mark Completed')),
             const PopupMenuItem(value: 'cancel', child: Text('Cancel Appointment')),
+            const PopupMenuItem(value: 'no_show', child: Text('Mark No Show')),
             const PopupMenuDivider(),
             PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error))),
           ],
@@ -231,8 +430,16 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
               _QuickBtn(icon: Icons.check_circle_outline_rounded, label: 'Confirm', color: AppColors.statusConfirmed, onTap: () => _updateStatus('Confirmed')),
               const SizedBox(width: 10),
               _QuickBtn(icon: Icons.task_alt_rounded, label: 'Complete', color: AppColors.statusCompleted, onTap: () => _updateStatus('Completed')),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              _QuickBtn(icon: Icons.person_off_rounded, label: 'No Show', color: const Color(0xFF8B5CF6), onTap: () => _updateStatus('No Show')),
               const SizedBox(width: 10),
-              _QuickBtn(icon: Icons.picture_as_pdf_rounded, label: 'PDF', color: cs.primary, onTap: _generatePdf),
+              _QuickBtn(icon: Icons.picture_as_pdf_rounded, label: 'PDF Report', color: cs.primary, onTap: _generatePdf),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              _QuickBtn(icon: Icons.summarize_rounded, label: 'All Sessions', color: const Color(0xFFD97706), onTap: _generateAllSessionsPdf),
             ]),
             const SizedBox(height: 16),
             Text('Clinical Assessment & Treatment', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15)),
@@ -384,6 +591,7 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
         const Divider(),
         const SizedBox(height: 12),
         _DetailRow(icon: Icons.calendar_today_rounded, label: 'Date', value: dateText),
+        _DetailRow(icon: Icons.timer_outlined, label: 'Duration', value: '${apt.durationMinutes} minutes'),
         _DetailRow(icon: Icons.medical_services_outlined, label: 'Treatment', value: apt.treatmentType),
         if (apt.phoneNumber.isNotEmpty) _DetailRow(icon: Icons.phone_outlined, label: 'Phone', value: apt.phoneNumber),
         if (apt.email.isNotEmpty) _DetailRow(icon: Icons.mail_outline_rounded, label: 'Email', value: apt.email),
@@ -428,10 +636,33 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             value: _statusValue,
             decoration: const InputDecoration(labelText: 'Status'),
-            items: ['Pending', 'Confirmed', 'Completed', 'Cancelled'].map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins()))).toList(),
+            items: ['Pending', 'Confirmed', 'Completed', 'Cancelled', 'No Show'].map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins()))).toList(),
             onChanged: (v) => setState(() => _statusValue = v ?? _statusValue),
+          ),
+          const SizedBox(height: 10),
+          // Duration editor
+          TextFormField(
+            controller: _durationController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: 'Duration (minutes)',
+              prefixIcon: const Icon(Icons.timer_outlined),
+              suffixIcon: PopupMenuButton<int>(
+                icon: const Icon(Icons.arrow_drop_down_rounded, size: 28),
+                onSelected: (val) {
+                  _durationController.text = val.toString();
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 20, child: Text('20 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                  PopupMenuItem(value: 40, child: Text('40 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                  PopupMenuItem(value: 60, child: Text('60 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                  PopupMenuItem(value: 80, child: Text('80 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                ],
+              ),
+            ),
           ),
           
           const SizedBox(height: 18),

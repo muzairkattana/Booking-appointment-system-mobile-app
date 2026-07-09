@@ -13,6 +13,7 @@ import 'payment_repository.dart';
 import '../../theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/repository_providers.dart';
+import '../../services/notification_service.dart';
 
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({super.key});
@@ -137,7 +138,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
   late TabController _tabController;
 
   List<Payment> _payments = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   String _method = 'Cash';
   String _status = 'Paid';
   String _filterStatus = 'All';
@@ -214,9 +215,12 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
       finalStatus = 'Partial';
     }
 
+    final pId = _uuid.v4();
+    final patientName = _patientController.text.trim();
+
     await _repository.savePayment(Payment(
-      id: _uuid.v4(),
-      patientName: _patientController.text.trim(),
+      id: pId,
+      patientName: patientName,
       amount: amount,
       paidAmount: paidAmount,
       paidAt: DateTime.now(),
@@ -225,6 +229,31 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
       note: _noteController.text.trim(),
       reminderDate: _reminderDate,
     ));
+
+    // Handle payment notifications
+    try {
+      // 1. Immediate payment success notification
+      await NotificationService().showLocalNotification(
+        'Payment Recorded 💳',
+        'Received PKR ${paidAmount.toStringAsFixed(0)} of PKR ${amount.toStringAsFixed(0)} from $patientName.',
+        payload: '/payments',
+      );
+
+      // 2. Schedule balance collection reminder if there is outstanding amount and a reminder date is set
+      if (_reminderDate != null && paidAmount < amount) {
+        final remaining = amount - paidAmount;
+        await NotificationService().scheduleLocalNotification(
+          id: pId.hashCode,
+          title: 'Collect Outstanding Balance 💰',
+          body: 'Collect outstanding balance of PKR ${remaining.toStringAsFixed(0)} from $patientName.',
+          scheduledDate: _reminderDate!,
+          payload: '/payments',
+        );
+      }
+    } catch (e) {
+      debugPrint('Payment notification failed: $e');
+    }
+
     _patientController.clear();
     _amountController.clear();
     _paidAmountController.clear();

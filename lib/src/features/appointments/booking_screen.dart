@@ -11,9 +11,11 @@ import '../../utils/validators.dart';
 import 'appointment_repository.dart';
 import '../../theme/app_theme.dart';
 import '../../services/repository_providers.dart';
+import '../../services/notification_service.dart';
 
 class BookingScreen extends ConsumerStatefulWidget {
-  const BookingScreen({super.key});
+  const BookingScreen({super.key, this.initialData});
+  final Map<String, dynamic>? initialData;
 
   @override
   ConsumerState<BookingScreen> createState() => _BookingScreenState();
@@ -27,6 +29,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
   final _professionController = TextEditingController();
   final _reasonController = TextEditingController();
   final _notesController = TextEditingController();
+  final _sessionNumberController = TextEditingController(text: '1');
+  final _totalSessionsController = TextEditingController();
+  final _durationController = TextEditingController(text: '40');
   
   AppointmentRepository get _repository => ref.read(appointmentRepositoryProvider);
 
@@ -37,10 +42,14 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
   bool _isSubmitting = false;
   bool _isEmergency = false;
 
+  int? _treatmentPlanTotalSessions;
+  int? _sessionNumber;
+  int _durationMinutes = 40;
+
   late final AnimationController _animController;
   late final Animation<double> _fadeAnim;
 
-  // Time slots 9am–7pm every 30 min
+  // Time slots 9am–7pm every 30 min (customizable/overrideable on conflicts)
   static final List<String> _slots = [
     '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM',
     '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM',
@@ -82,6 +91,27 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
     _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _animController.forward();
+
+    if (widget.initialData != null) {
+      _nameController.text = widget.initialData!['patientName']?.toString() ?? '';
+      _phoneController.text = widget.initialData!['phoneNumber']?.toString() ?? '';
+      _emailController.text = widget.initialData!['email']?.toString() ?? '';
+      _professionController.text = widget.initialData!['patientProfession']?.toString() ?? '';
+      _service = widget.initialData!['treatmentType']?.toString() ?? 'Gonstead Adjustment';
+      _treatmentPlanTotalSessions = widget.initialData!['treatmentPlanTotalSessions'] as int?;
+      if (_treatmentPlanTotalSessions != null) {
+        _totalSessionsController.text = _treatmentPlanTotalSessions!.toString();
+      }
+      _sessionNumber = widget.initialData!['sessionNumber'] as int?;
+      if (_sessionNumber != null) {
+        _sessionNumberController.text = _sessionNumber!.toString();
+      }
+      _reasonController.text = widget.initialData!['visitReason']?.toString() ?? 'Next follow-up treatment session.';
+      if (widget.initialData!['durationMinutes'] != null) {
+        _durationMinutes = widget.initialData!['durationMinutes'] as int;
+        _durationController.text = _durationMinutes.toString();
+      }
+    }
   }
 
   @override
@@ -92,6 +122,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
     _professionController.dispose();
     _reasonController.dispose();
     _notesController.dispose();
+    _sessionNumberController.dispose();
+    _totalSessionsController.dispose();
+    _durationController.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -130,40 +163,79 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
 
       final appointments = await _repository.loadAppointments();
 
-      // Check conflict
-      final conflictingAppt = appointments.where((a) =>
+      // Check conflict: Active appointments that are NOT cancelled AND NOT rejected
+      final activeAppointments = appointments.where((a) =>
           a.status.toLowerCase() != 'cancelled' &&
-          a.scheduledAt != null &&
-          a.scheduledAt!.year == scheduledDateTime.year &&
-          a.scheduledAt!.month == scheduledDateTime.month &&
-          a.scheduledAt!.day == scheduledDateTime.day &&
-          a.scheduledAt!.hour == scheduledDateTime.hour &&
-          a.scheduledAt!.minute == scheduledDateTime.minute).toList();
+          a.status.toLowerCase() != 'rejected' &&
+          a.scheduledAt != null).toList();
 
-      if (conflictingAppt.isNotEmpty) {
-        final conflict = conflictingAppt.first;
+      Appointment? conflict;
+      for (final appt in activeAppointments) {
+        final diff = scheduledDateTime.difference(appt.scheduledAt!).inMinutes.abs();
+        final requiredGap = _durationMinutes;
+        if (diff < requiredGap) {
+          conflict = appt;
+          break;
+        }
+      }
+
+      if (conflict != null) {
+        // Suggest the next available slot
+        DateTime nextAvailable = scheduledDateTime;
+        bool hasConflict = true;
+        while (hasConflict) {
+          hasConflict = false;
+          for (final appt in activeAppointments) {
+            final diff = nextAvailable.difference(appt.scheduledAt!).inMinutes.abs();
+            final requiredGap = _durationMinutes;
+            if (diff < requiredGap) {
+              nextAvailable = appt.scheduledAt!.add(Duration(minutes: requiredGap));
+              hasConflict = true;
+              break;
+            }
+          }
+        }
+
+        final suggestedDateText = DateFormat('EEEE, d MMMM y').format(nextAvailable);
+        final suggestedTimeText = DateFormat('hh:mm a').format(nextAvailable);
+
         if (mounted) {
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: Row(
-                children: const [
-                  Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
-                  SizedBox(width: 8),
-                  Text('Booking Conflict'),
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Booking Conflict', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 18)),
+                  ),
                 ],
               ),
               content: Text(
-                'This time slot is already booked for an active appointment:\n\n'
-                '• Patient: ${conflict.patientName}\n'
-                '• Treatment: ${conflict.treatmentType}\n\n'
-                'Please select a different date or time.',
+                'This time slot conflicts with an existing appointment (enforcing $_durationMinutes-minute gap):\n\n'
+                '• Patient: ${conflict!.patientName}\n'
+                '• Booked Time: ${DateFormat('hh:mm a').format(conflict!.scheduledAt!)}\n\n'
+                'The next available conflict-free slot is:\n'
+                '• $suggestedDateText at $suggestedTimeText\n\n'
+                'Would you like to book this suggested slot instead?',
                 style: GoogleFonts.poppins(fontSize: 14),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _selectedDate = nextAvailable;
+                      _selectedSlot = suggestedTimeText;
+                      _step = 2; // Jump to Review step
+                    });
+                  },
+                  child: const Text('Use Suggested Slot'),
                 ),
               ],
             ),
@@ -195,8 +267,45 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
           updatedAt: DateTime.now(),
           isEmergency: _isEmergency,
           patientProfession: _professionController.text.trim(),
+          treatmentPlanTotalSessions: _treatmentPlanTotalSessions,
+          sessionNumber: _sessionNumber,
+          durationMinutes: _durationMinutes,
         ),
       );
+
+      // Trigger instant booking notification
+      try {
+        await NotificationService().showLocalNotification(
+          'Appointment Booked! 📅',
+          'Patient: ${_nameController.text.trim()} • $_selectedSlot on $formattedDate',
+          payload: '/appointment/$formattedId',
+        );
+
+        // Schedule a reminder 2 hours before scheduled time
+        if (scheduledDateTime.isAfter(DateTime.now())) {
+          final reminderTime = scheduledDateTime.subtract(const Duration(hours: 2));
+          if (reminderTime.isAfter(DateTime.now())) {
+            await NotificationService().scheduleLocalNotification(
+              id: formattedId.hashCode,
+              title: 'Upcoming Appointment Reminder ⏰',
+              body: 'Appointment with ${_nameController.text.trim()} is scheduled in 2 hours at $_selectedSlot.',
+              scheduledDate: reminderTime,
+              payload: '/appointment/$formattedId',
+            );
+          }
+
+          // Schedule a notification for the actual appointment start time
+          await NotificationService().scheduleLocalNotification(
+            id: formattedId.hashCode + 1,
+            title: 'Appointment Starting Now! 📅',
+            body: 'Your appointment with ${_nameController.text.trim()} is starting now ($_selectedSlot).',
+            scheduledDate: scheduledDateTime,
+            payload: '/appointment/$formattedId',
+          );
+        }
+      } catch (e) {
+        debugPrint('Failed to trigger local notifications: $e');
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -332,6 +441,120 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
                   controller: _notesController,
                   maxLines: 2,
                   decoration: const InputDecoration(hintText: 'Additional notes (optional)', prefixIcon: Padding(padding: EdgeInsets.only(bottom: 24), child: Icon(Icons.notes_rounded))),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _totalSessionsController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    hintText: 'Treatment Plan Total Sessions (Optional)',
+                    prefixIcon: const Icon(Icons.playlist_add_check_rounded),
+                    suffixIcon: PopupMenuButton<int?>(
+                      icon: const Icon(Icons.arrow_drop_down_rounded, size: 28),
+                      onSelected: (val) {
+                        setState(() {
+                          _treatmentPlanTotalSessions = val;
+                          _totalSessionsController.text = val == null ? '' : val.toString();
+                          if (val != null) {
+                            if (_sessionNumber == null || _sessionNumber == 0) {
+                              _sessionNumber = 1;
+                              _sessionNumberController.text = '1';
+                            }
+                          } else {
+                            _sessionNumber = null;
+                            _sessionNumberController.clear();
+                          }
+                        });
+                      },
+                      itemBuilder: (_) => [
+                        PopupMenuItem(value: null, child: Text('None (Single Session)', style: GoogleFonts.poppins(fontSize: 13))),
+                        PopupMenuItem(value: 6, child: Text('6 Sessions Plan', style: GoogleFonts.poppins(fontSize: 13))),
+                        PopupMenuItem(value: 8, child: Text('8 Sessions Plan', style: GoogleFonts.poppins(fontSize: 13))),
+                        PopupMenuItem(value: 12, child: Text('12 Sessions Plan', style: GoogleFonts.poppins(fontSize: 13))),
+                      ],
+                    ),
+                  ),
+                  onChanged: (v) {
+                    setState(() {
+                      final n = int.tryParse(v);
+                      _treatmentPlanTotalSessions = n;
+                      if (n != null && n > 0) {
+                        if (_sessionNumber == null || _sessionNumber == 0) {
+                          _sessionNumber = 1;
+                          _sessionNumberController.text = '1';
+                        }
+                      } else {
+                        _sessionNumber = null;
+                        _sessionNumberController.clear();
+                      }
+                    });
+                  },
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return null;
+                    final n = int.tryParse(v);
+                    if (n == null || n <= 0) return 'Must be a positive number';
+                    return null;
+                  },
+                ),
+                if (_treatmentPlanTotalSessions != null) ...[
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _sessionNumberController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      hintText: 'Session Number',
+                      prefixIcon: Icon(Icons.pin_rounded),
+                    ),
+                    validator: (v) {
+                      if (_treatmentPlanTotalSessions == null) return null;
+                      if (v == null || v.isEmpty) return 'Required';
+                      final n = int.tryParse(v);
+                      if (n == null || n <= 0) return 'Must be a positive number';
+                      if (n > _treatmentPlanTotalSessions!) return 'Cannot exceed total sessions';
+                      return null;
+                    },
+                    onChanged: (v) {
+                      _sessionNumber = int.tryParse(v);
+                    },
+                  ),
+                ],
+                const SizedBox(height: 14),
+                // Appointment Duration Selector
+                TextFormField(
+                  controller: _durationController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    hintText: 'Appointment Duration (minutes)',
+                    prefixIcon: const Icon(Icons.timer_outlined),
+                    suffixIcon: PopupMenuButton<int>(
+                      icon: const Icon(Icons.arrow_drop_down_rounded, size: 28),
+                      onSelected: (val) {
+                        setState(() {
+                          _durationMinutes = val;
+                          _durationController.text = val.toString();
+                        });
+                      },
+                      itemBuilder: (_) => [
+                        PopupMenuItem(value: 20, child: Text('20 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                        PopupMenuItem(value: 40, child: Text('40 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                        PopupMenuItem(value: 60, child: Text('60 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                        PopupMenuItem(value: 80, child: Text('80 minutes', style: GoogleFonts.poppins(fontSize: 13))),
+                      ],
+                    ),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Duration is required';
+                    final n = int.tryParse(v);
+                    if (n == null || n <= 0) return 'Must be a positive number';
+                    if (n > 240) return 'Cannot exceed 240 minutes';
+                    return null;
+                  },
+                  onChanged: (v) {
+                    final n = int.tryParse(v);
+                    if (n != null && n > 0) {
+                      setState(() => _durationMinutes = n);
+                    }
+                  },
                 ),
                 const SizedBox(height: 14),
                 SwitchListTile.adaptive(
@@ -594,6 +817,12 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
               if (_selectedSlot != null)
                 _ConfirmRow(label: 'Time', value: _selectedSlot!),
               _ConfirmRow(label: 'Doctor', value: 'DR. BASHIR AHMAD'),
+              if (_treatmentPlanTotalSessions != null)
+                _ConfirmRow(
+                  label: 'Treatment Plan',
+                  value: 'Session ${_sessionNumber ?? 1} of $_treatmentPlanTotalSessions Sessions Plan',
+                ),
+              _ConfirmRow(label: 'Duration', value: '$_durationMinutes minutes'),
               if (_isEmergency)
                 _ConfirmRow(label: 'Priority', value: 'EMERGENCY (Custom Time)'),
               if (_reasonController.text.isNotEmpty)

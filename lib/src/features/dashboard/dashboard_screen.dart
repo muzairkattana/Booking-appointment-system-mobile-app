@@ -35,7 +35,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   PaymentRepository get _paymentRepository => ref.read(paymentRepositoryProvider);
   List<Appointment> _appointments = [];
   List<Payment> _payments = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
 
   Future<void> _exportMasterBackup() async {
     try {

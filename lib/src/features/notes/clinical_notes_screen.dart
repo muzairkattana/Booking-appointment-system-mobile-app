@@ -13,6 +13,7 @@ import '../appointments/appointment_repository.dart';
 import '../../theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/repository_providers.dart';
+import '../../services/notification_service.dart';
 
 class ClinicalNotesScreen extends ConsumerStatefulWidget {
   const ClinicalNotesScreen({super.key});
@@ -127,7 +128,7 @@ class _ClinicalNotesScreenState extends ConsumerState<ClinicalNotesScreen> {
 
   List<ClinicalNote> _notes = [];
   List<String> _patientSuggestions = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   String _searchQuery = '';
   String _selectedCategory = 'General';
 
@@ -164,13 +165,29 @@ class _ClinicalNotesScreenState extends ConsumerState<ClinicalNotesScreen> {
 
   Future<void> _saveNote() async {
     if (!_formKey.currentState!.validate()) return;
+    final patientName = _patientController.text.trim();
+    final noteText = _noteController.text.trim();
+    final category = _selectedCategory;
+
     await _repository.saveNote(ClinicalNote(
       id: _uuid.v4(),
-      patientName: _patientController.text.trim(),
-      note: _noteController.text.trim(),
-      category: _selectedCategory,
+      patientName: patientName,
+      note: noteText,
+      category: category,
       createdAt: DateTime.now(),
     ));
+
+    // Trigger instant notification
+    try {
+      await NotificationService().showLocalNotification(
+        'Clinical Note Saved 📝',
+        'Added a $category note for $patientName.',
+        payload: '/notes',
+      );
+    } catch (e) {
+      debugPrint('Note notification failed: $e');
+    }
+
     _patientController.clear();
     _noteController.clear();
     if (!mounted) return;
@@ -184,7 +201,19 @@ class _ClinicalNotesScreenState extends ConsumerState<ClinicalNotesScreen> {
   }
 
   Future<void> _deleteNote(String id) async {
+    final note = _notes.firstWhere((n) => n.id == id, orElse: () => ClinicalNote(id: '', patientName: 'Unknown', note: '', category: '', createdAt: DateTime.now()));
     await _repository.deleteNote(id);
+
+    try {
+      await NotificationService().showLocalNotification(
+        'Clinical Note Deleted 🗑️',
+        'Deleted note for ${note.patientName}.',
+        payload: '/notes',
+      );
+    } catch (e) {
+      debugPrint('Note delete notification failed: $e');
+    }
+
     _loadNotesAndSuggestions();
   }
 
