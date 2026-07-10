@@ -67,9 +67,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final size = MediaQuery.of(context).size;
+    final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
       body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -79,108 +83,172 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
                 : [AppColors.scaffoldLight, Colors.white],
           ),
         ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: FadeTransition(
-                opacity: _fadeAnim,
-                child: SlideTransition(
-                  position: _slideAnim,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 16),
+        child: Stack(
+          children: [
+            // Decorative background circles for premium visual layout
+            Positioned(
+              top: -size.width * 0.4,
+              right: -size.width * 0.3,
+              child: Container(
+                width: size.width * 0.9,
+                height: size.width * 0.9,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cs.primary.withOpacity(isDark ? 0.03 : 0.04),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -size.width * 0.3,
+              left: -size.width * 0.2,
+              child: Container(
+                width: size.width * 0.8,
+                height: size.width * 0.8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cs.primary.withOpacity(isDark ? 0.02 : 0.03),
+                ),
+              ),
+            ),
 
-                      // Header
-                      Text(
-                        'Welcome back 👋',
-                        style: GoogleFonts.poppins(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                          color: Theme.of(context).colorScheme.onSurface,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Sign in to access appointments, notes, and your care dashboard.',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Form card
-                      PremiumCard(
-                        padding: const EdgeInsets.all(24),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // Email field
-                              TextFormField(
-                                controller: _emailController,
-                                keyboardType: TextInputType.emailAddress,
-                                decoration: const InputDecoration(
-                                  hintText: 'Email address',
-                                  prefixIcon: Icon(Icons.mail_outline_rounded),
-                                ),
-                                validator: Validators.email,
-                              ),
-                              const SizedBox(height: 14),
-
-                              // Password field
-                              TextFormField(
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                decoration: InputDecoration(
-                                  hintText: 'Password',
-                                  prefixIcon: const Icon(Icons.lock_outline_rounded),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_off_outlined
-                                          : Icons.visibility_outlined,
-                                    ),
-                                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            SafeArea(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  child: FadeTransition(
+                    opacity: _fadeAnim,
+                    child: SlideTransition(
+                      position: _slideAnim,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Clinical Logo
+                          Center(
+                            child: Container(
+                              width: 86,
+                              height: 86,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: cs.primary.withOpacity(0.12),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 8),
                                   ),
-                                ),
-                                validator: Validators.password,
-                              ),
-                              const SizedBox(height: 24),
-
-                              // Sign in button
-                              SizedBox(
-                                height: 52,
-                                child: ElevatedButton(
-                                  onPressed: _isLoading ? null : _loginWithEmail,
-                                  child: _isLoading
-                                      ? const SizedBox(
-                                          width: 22,
-                                          height: 22,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2.5,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text('Sign In'),
+                                ],
+                                border: Border.all(
+                                  color: cs.primary.withOpacity(0.08),
+                                  width: 1.5,
                                 ),
                               ),
-
-                            ],
+                              padding: const EdgeInsets.all(10),
+                              child: Image.asset(
+                                'assets/ChatGPT Image Jul 9, 2025, 11_09_56 PM.png',
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => Icon(
+                                  Icons.local_hospital_rounded,
+                                  color: cs.primary,
+                                  size: 40,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 28),
+
+                          // Header
+                          Text(
+                            'Welcome back 👋',
+                            style: GoogleFonts.poppins(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              color: cs.onSurface,
+                              letterSpacing: -0.5,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Sign in to access appointments, notes, and your care dashboard.',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              color: cs.onSurface.withOpacity(0.6),
+                              height: 1.5,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 32),
+
+                          // Form card
+                          PremiumCard(
+                            padding: const EdgeInsets.all(24),
+                            child: Form(
+                              key: _formKey,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // Email field
+                                  TextFormField(
+                                    controller: _emailController,
+                                    keyboardType: TextInputType.emailAddress,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Email address',
+                                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                                    ),
+                                    validator: Validators.email,
+                                  ),
+                                  const SizedBox(height: 14),
+
+                                  // Password field
+                                  TextFormField(
+                                    controller: _passwordController,
+                                    obscureText: _obscurePassword,
+                                    decoration: InputDecoration(
+                                      hintText: 'Password',
+                                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          _obscurePassword
+                                              ? Icons.visibility_off_outlined
+                                              : Icons.visibility_outlined,
+                                        ),
+                                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                                      ),
+                                    ),
+                                    validator: Validators.password,
+                                  ),
+                                  const SizedBox(height: 24),
+
+                                  // Sign in button
+                                  SizedBox(
+                                    height: 52,
+                                    child: ElevatedButton(
+                                      onPressed: _isLoading ? null : _loginWithEmail,
+                                      child: _isLoading
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.5,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Text('Sign In'),
+                                    ),
+                                  ),
+
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );

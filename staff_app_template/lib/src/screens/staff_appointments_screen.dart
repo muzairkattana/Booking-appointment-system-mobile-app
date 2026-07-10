@@ -223,7 +223,7 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const brandColor = Color(0xFF4C958D);
+    const brandColor = Color(0xFF0E7490);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),

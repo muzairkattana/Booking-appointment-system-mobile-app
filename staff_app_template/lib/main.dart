@@ -42,8 +42,8 @@ class StaffApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF4C958D),
-          primary: const Color(0xFF4C958D),
+          seedColor: const Color(0xFF0E7490),
+          primary: const Color(0xFF0E7490),
           surface: Colors.white,
           brightness: Brightness.light,
         ),

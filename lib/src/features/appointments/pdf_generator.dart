@@ -29,7 +29,7 @@ Future<Uint8List> generatePatientReportPdf(Appointment appointment) async {
   final clinicDoctor = 'DR. BASHIR AHMAD';
   final clinicPhone = '+92 304 6996267';
   
-  final primaryColor = PdfColor.fromHex('#4C958D');
+  final primaryColor = PdfColor.fromHex('#0E7490');
   final secondaryColor = PdfColor.fromHex('#0F172A');
   final accentColor = PdfColor.fromHex('#F8FAFC');
   final borderColor = PdfColor.fromHex('#E2E8F0');
@@ -753,7 +753,7 @@ Future<Uint8List> generateAllSessionsReportPdf(List<Appointment> sessions) async
   const clinicDoctor = 'DR. BASHIR AHMAD';
   const clinicPhone = '+92 304 6996267';
 
-  final primaryColor = PdfColor.fromHex('#4C958D');
+  final primaryColor = PdfColor.fromHex('#0E7490');
   final secondaryColor = PdfColor.fromHex('#0F172A');
   final accentBg = PdfColor.fromHex('#F8FAFC');
   final borderColor = PdfColor.fromHex('#E2E8F0');

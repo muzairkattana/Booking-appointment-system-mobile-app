@@ -147,10 +147,10 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
         cacheWidth: 200,
         cacheHeight: 200,
         errorBuilder: (context, error, stackTrace) => Image.asset(
-          'assets/dr-bashir-photo.jpeg',
+          'assets/ChatGPT Image Jul 9, 2025, 11_09_56 PM.png',
           width: 100,
           height: 100,
-          fit: BoxFit.cover,
+          fit: BoxFit.contain,
           cacheWidth: 200,
           cacheHeight: 200,
           errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 50),
@@ -158,10 +158,10 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
       );
     } else {
       avatar = Image.asset(
-        'assets/dr-bashir-photo.jpeg',
+        'assets/ChatGPT Image Jul 9, 2025, 11_09_56 PM.png',
         width: 100,
         height: 100,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         cacheWidth: 200,
         cacheHeight: 200,
         errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 50),
@@ -183,10 +183,12 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
                   Container(
                     width: 100, height: 100,
                     decoration: BoxDecoration(
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(28),
                       boxShadow: [BoxShadow(color: cs.primary.withValues(alpha: 0.2), blurRadius: 18)],
                     ),
                     clipBehavior: Clip.hardEdge,
+                    padding: const EdgeInsets.all(8),
                     child: avatar,
                   ),
                   Positioned(
@@ -512,8 +514,8 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: const Color(0xFF4C958D).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                  child: const Icon(Icons.badge_rounded, color: Color(0xFF4C958D), size: 20),
+                  decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.badge_rounded, color: AppColors.primary, size: 20),
                 ),
                 title: Text('Staff Portal Access', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
                 subtitle: Text('Manage staff credentials and access controls', style: GoogleFonts.poppins(fontSize: 12)),

@@ -101,7 +101,7 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
             colors: [
               Color(0xFF09315D), // Dark Blue
               Color(0xFF1E5B7E), // Medium Teal-Blue
-              Color(0xFF4C958D), // GCT Teal
+              AppColors.primary, // GCT Teal
             ],
             stops: [0.0, 0.5, 1.0],
           ),
@@ -166,7 +166,7 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
                               fit: BoxFit.contain,
                               errorBuilder: (_, __, ___) => const Icon(
                                 Icons.local_hospital_rounded,
-                                color: Color(0xFF4C958D),
+                                color: AppColors.primary,
                                 size: 50,
                               ),
                             ),

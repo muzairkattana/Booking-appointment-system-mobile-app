@@ -160,7 +160,7 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
-        backgroundColor: isError ? Colors.redAccent : const Color(0xFF4C958D),
+        backgroundColor: isError ? Colors.redAccent : AppColors.primary,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -186,10 +186,10 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
         cacheWidth: 160,
         cacheHeight: 160,
         errorBuilder: (context, error, stackTrace) => Image.asset(
-          'assets/dr-bashir-photo.jpeg',
+          'assets/ChatGPT Image Jul 9, 2025, 11_09_56 PM.png',
           width: 80,
           height: 80,
-          fit: BoxFit.cover,
+          fit: BoxFit.contain,
           cacheWidth: 160,
           cacheHeight: 160,
           errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 40, color: Colors.white),
@@ -197,10 +197,10 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
       );
     } else {
       avatar = Image.asset(
-        'assets/dr-bashir-photo.jpeg',
+        'assets/ChatGPT Image Jul 9, 2025, 11_09_56 PM.png',
         width: 80,
         height: 80,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         cacheWidth: 160,
         cacheHeight: 160,
         errorBuilder: (context, error, stackTrace) => const Icon(Icons.person_rounded, size: 40, color: Colors.white),
@@ -235,13 +235,15 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
                   width: 86,
                   height: 86,
                   decoration: BoxDecoration(
+                    color: Colors.white,
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF4C958D), width: 3),
+                    border: Border.all(color: AppColors.primary, width: 3),
                     boxShadow: [
-                      BoxShadow(color: const Color(0xFF4C958D).withOpacity(0.3), blurRadius: 15, spreadRadius: 2),
+                      BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 15, spreadRadius: 2),
                     ],
                   ),
                   clipBehavior: Clip.hardEdge,
+                  padding: const EdgeInsets.all(8),
                   child: avatar,
                 ),
                 const SizedBox(height: 14),
@@ -276,9 +278,9 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
                             margin: const EdgeInsets.symmetric(horizontal: 12),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: filled ? (_isShaking ? Colors.redAccent : const Color(0xFF4C958D)) : Colors.transparent,
+                              color: filled ? (_isShaking ? Colors.redAccent : AppColors.primary) : Colors.transparent,
                               border: Border.all(
-                                color: _isShaking ? Colors.redAccent : const Color(0xFF4C958D),
+                                color: _isShaking ? Colors.redAccent : AppColors.primary,
                                 width: 2.5,
                               ),
                             ),
@@ -361,12 +363,12 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
         width: 68,
         height: 68,
         decoration: BoxDecoration(
-          color: const Color(0xFF4C958D).withOpacity(0.12),
+          color: AppColors.primary.withOpacity(0.12),
           shape: BoxShape.circle,
-          border: Border.all(color: const Color(0xFF4C958D).withOpacity(0.4), width: 1.5),
+          border: Border.all(color: AppColors.primary.withOpacity(0.4), width: 1.5),
         ),
         alignment: Alignment.center,
-        child: const Icon(Icons.fingerprint_rounded, color: Color(0xFF4C958D), size: 30),
+        child: const Icon(Icons.fingerprint_rounded, color: AppColors.primary, size: 30),
       ),
     );
   }

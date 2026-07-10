@@ -3,16 +3,16 @@ import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
   // Primary brand palette
-  static const Color primary = Color(0xFF4C958D);
-  static const Color primaryDark = Color(0xFF2C6B63);
-  static const Color accent = Color(0xFF00C9A7);
-  static const Color accentDark = Color(0xFF009B84);
+  static const Color primary = Color(0xFF0E7490);
+  static const Color primaryDark = Color(0xFF0891B2);
+  static const Color accent = Color(0xFF06B6D4);
+  static const Color accentDark = Color(0xFF0891B2);
 
   // Surface colours
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color surfaceDark = Color(0xFF0F1C2E);
-  static const Color scaffoldLight = Color(0xFF4C958D);
-  static const Color scaffoldDark = Color(0xFF070F1C);
+  static const Color surfaceDark = Color(0xFF1E293B);
+  static const Color scaffoldLight = Color(0xFFF8FAFC);
+  static const Color scaffoldDark = Color(0xFF0F172A);
 
   // Status tokens
   static const Color statusConfirmed = Color(0xFF00A86B);
@@ -25,13 +25,13 @@ class AppColors {
   static const Color statusCompletedBg = Color(0xFFEFF6FF);
 
   // Gradient sets
-  static const List<Color> heroGradient = [Color(0xFF0B5FB2), Color(0xFF00B4A0)];
-  static const List<Color> heroGradientDark = [Color(0xFF1A3A6B), Color(0xFF007A70)];
-  static const List<Color> cardGradient = [Color(0xFF1565C0), Color(0xFF00897B)];
+  static const List<Color> heroGradient = [Color(0xFF0E7490), Color(0xFF06B6D4)];
+  static const List<Color> heroGradientDark = [Color(0xFF0F172A), Color(0xFF1E293B)];
+  static const List<Color> cardGradient = [Color(0xFF0F172A), Color(0xFF0E7490)];
 
   // Neutral
-  static const Color navy = Color(0xFF0D1B35);
-  static const Color navyLight = Color(0xFF1E3A5F);
+  static const Color navy = Color(0xFF0F172A);
+  static const Color navyLight = Color(0xFF334155);
   static const Color grey50 = Color(0xFFF8FAFC);
   static const Color grey100 = Color(0xFFF1F5F9);
   static const Color grey200 = Color(0xFFE2E8F0);

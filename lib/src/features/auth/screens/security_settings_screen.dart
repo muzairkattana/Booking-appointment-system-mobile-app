@@ -141,10 +141,11 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
 
   void _showSnackBar(String msg, {bool isError = false}) {
     if (!mounted) return;
+    final primaryColor = Theme.of(context).colorScheme.primary;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
-        backgroundColor: isError ? Colors.redAccent : const Color(0xFF4C958D),
+        backgroundColor: isError ? Colors.redAccent : primaryColor,
         behavior: SnackBarBehavior.floating,
       ),
     );
