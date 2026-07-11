@@ -56,6 +56,8 @@ dependencies:
   excel: ^4.0.6
   local_auth: ^2.1.8
   timezone: ^0.9.4
+  flutter_tts: ^4.2.5
+  android_alarm_manager_plus: ^4.0.1
 
 dev_dependencies:
   flutter_test:

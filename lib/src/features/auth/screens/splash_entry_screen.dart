@@ -41,8 +41,22 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
       _handleRedirect();
     });
   }
-
   Future<void> _handleRedirect() async {
+    final prefs = await AppPreferences.instance.prefs;
+    final isStaffLoggedIn = prefs.getBool('is_staff_logged_in') ?? false;
+    if (isStaffLoggedIn) {
+      if (mounted) {
+        final staffEmail = prefs.getString('logged_in_staff_email') ?? '';
+        final staffPinEnabled = prefs.getBool('staff_pin_enabled_$staffEmail') ?? false;
+        if (staffPinEnabled) {
+          context.go('/staff-lock');
+        } else {
+          context.go('/staff-dashboard');
+        }
+      }
+      return;
+    }
+
     bool firebaseSignedIn = false;
     try {
       if (Firebase.apps.isNotEmpty && FirebaseAuth.instance.currentUser != null) {
@@ -62,7 +76,6 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
       firebaseSignedIn = false;
     }
 
-    final prefs = await AppPreferences.instance.prefs;
     final storedUser = prefs.getString('local_auth_current_user');
     final pinEnabled = prefs.getBool('security_pin_enabled') ?? false;
     final hasLocalUser = storedUser != null && storedUser.isNotEmpty;

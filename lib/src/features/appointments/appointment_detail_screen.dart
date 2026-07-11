@@ -179,31 +179,12 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
     try {
       // Cancel previous scheduled notifications if date/time changed or no longer active
       if (updated.scheduledAt != _appointment!.scheduledAt || updated.status.toLowerCase() != 'confirmed') {
-        await NotificationService().cancelNotification(_appointment!.id.hashCode);
-        await NotificationService().cancelNotification(_appointment!.id.hashCode + 1);
+        await NotificationService().cancelNotification(NotificationService.getReminderId(_appointment!.id));
+        await NotificationService().cancelNotification(NotificationService.getStartId(_appointment!.id));
       }
       
-      // Re-schedule reminder and appointment time notifications if updated to confirmed and scheduledAt is in the future
-      if (updated.status.toLowerCase() == 'confirmed' && updated.scheduledAt != null && updated.scheduledAt!.isAfter(DateTime.now())) {
-        final reminderTime = updated.scheduledAt!.subtract(const Duration(hours: 2));
-        if (reminderTime.isAfter(DateTime.now())) {
-          await NotificationService().scheduleLocalNotification(
-            id: updated.id.hashCode,
-            title: 'Upcoming Appointment Reminder ⏰',
-            body: 'Appointment with ${updated.patientName} is scheduled in 2 hours.',
-            scheduledDate: reminderTime,
-            payload: '/appointment/${updated.id}',
-          );
-        }
-
-        await NotificationService().scheduleLocalNotification(
-          id: updated.id.hashCode + 1,
-          title: 'Appointment Starting Now! 📅',
-          body: 'Your appointment with ${updated.patientName} is starting now.',
-          scheduledDate: updated.scheduledAt!,
-          payload: '/appointment/${updated.id}',
-        );
-      }
+      // Re-schedule reminder and appointment time notifications
+      await NotificationService().scheduleAppointmentReminders(updated);
 
       // Show instant confirmation notification
       await NotificationService().showLocalNotification(
@@ -240,28 +221,11 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
       if (newStatus.toLowerCase() == 'cancelled' ||
           newStatus.toLowerCase() == 'completed' ||
           newStatus.toLowerCase() == 'no show') {
-        await NotificationService().cancelNotification(updated.id.hashCode);
-        await NotificationService().cancelNotification(updated.id.hashCode + 1);
-      } else if (newStatus.toLowerCase() == 'confirmed' && updated.scheduledAt != null && updated.scheduledAt!.isAfter(DateTime.now())) {
-        // Reschedule notifications if it was changed back to Confirmed
-        final reminderTime = updated.scheduledAt!.subtract(const Duration(hours: 2));
-        if (reminderTime.isAfter(DateTime.now())) {
-          await NotificationService().scheduleLocalNotification(
-            id: updated.id.hashCode,
-            title: 'Upcoming Appointment Reminder ⏰',
-            body: 'Appointment with ${updated.patientName} is scheduled in 2 hours.',
-            scheduledDate: reminderTime,
-            payload: '/appointment/${updated.id}',
-          );
-        }
-
-        await NotificationService().scheduleLocalNotification(
-          id: updated.id.hashCode + 1,
-          title: 'Appointment Starting Now! 📅',
-          body: 'Your appointment with ${updated.patientName} is starting now.',
-          scheduledDate: updated.scheduledAt!,
-          payload: '/appointment/${updated.id}',
-        );
+        await NotificationService().cancelNotification(NotificationService.getReminderId(updated.id));
+        await NotificationService().cancelNotification(NotificationService.getStartId(updated.id));
+      } else {
+        // Reschedule notifications if changed back to Confirmed/Pending
+        await NotificationService().scheduleAppointmentReminders(updated);
       }
 
       // Show instant notification
@@ -298,8 +262,9 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
     await _repo.deleteAppointment(oldAptId);
 
     try {
-      // Cancel scheduled reminder
-      await NotificationService().cancelNotification(oldAptId.hashCode);
+      // Cancel scheduled reminder and start notifications
+      await NotificationService().cancelNotification(NotificationService.getReminderId(oldAptId));
+      await NotificationService().cancelNotification(NotificationService.getStartId(oldAptId));
       // Show instant notification
       await NotificationService().showLocalNotification(
         'Appointment Deleted 🗑️',
@@ -329,48 +294,66 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
 
   Future<void> _generatePdf() async {
     if (_appointment == null) return;
-    final bytes = await generatePatientReportPdf(_appointment!);
-    await Printing.layoutPdf(
-      onLayout: (format) async => bytes,
-      name: '${_appointment!.patientName}_REPORT',
-    );
+    try {
+      final bytes = await generatePatientReportPdf(_appointment!);
+      await Printing.layoutPdf(
+        onLayout: (format) async => bytes,
+        name: '${_appointment!.patientName}_REPORT',
+      );
+    } catch (e) {
+      debugPrint('Error generating patient report PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate report: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _generateAllSessionsPdf() async {
     if (_appointment == null) return;
-    final allApts = await _repo.loadAppointments();
-    
-    // Find all sessions for this patient
-    final patientName = _appointment!.patientName.toLowerCase();
-    final patientPhone = _appointment!.phoneNumber;
-    final patientSessions = allApts.where((a) {
-      final nameMatch = a.patientName.toLowerCase() == patientName;
-      final phoneMatch = patientPhone.isNotEmpty && a.phoneNumber == patientPhone;
-      return nameMatch || phoneMatch;
-    }).toList();
+    try {
+      final allApts = await _repo.loadAppointments();
+      
+      // Find all sessions for this patient
+      final patientName = _appointment!.patientName.toLowerCase();
+      final patientPhone = _appointment!.phoneNumber;
+      final patientSessions = allApts.where((a) {
+        final nameMatch = a.patientName.toLowerCase() == patientName;
+        final phoneMatch = patientPhone.isNotEmpty && a.phoneNumber == patientPhone;
+        return nameMatch || phoneMatch;
+      }).toList();
 
-    // Sort by scheduled date
-    patientSessions.sort((a, b) {
-      if (a.scheduledAt == null && b.scheduledAt == null) return 0;
-      if (a.scheduledAt == null) return 1;
-      if (b.scheduledAt == null) return -1;
-      return a.scheduledAt!.compareTo(b.scheduledAt!);
-    });
+      // Sort by scheduled date
+      patientSessions.sort((a, b) {
+        if (a.scheduledAt == null && b.scheduledAt == null) return 0;
+        if (a.scheduledAt == null) return 1;
+        if (b.scheduledAt == null) return -1;
+        return a.scheduledAt!.compareTo(b.scheduledAt!);
+      });
 
-    if (patientSessions.isEmpty) {
+      if (patientSessions.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No sessions found for this patient.')),
+          );
+        }
+        return;
+      }
+
+      final bytes = await generateAllSessionsReportPdf(patientSessions);
+      await Printing.layoutPdf(
+        onLayout: (format) async => bytes,
+        name: '${_appointment!.patientName}_ALL_SESSIONS_REPORT',
+      );
+    } catch (e) {
+      debugPrint('Error generating all sessions PDF: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No sessions found for this patient.')),
+          SnackBar(content: Text('Failed to generate comprehensive report: $e')),
         );
       }
-      return;
     }
-
-    final bytes = await generateAllSessionsReportPdf(patientSessions);
-    await Printing.layoutPdf(
-      onLayout: (format) async => bytes,
-      name: '${_appointment!.patientName}_ALL_SESSIONS_REPORT',
-    );
   }
 
   @override
@@ -733,37 +716,6 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
               'T9', 'T10', 'T11', 'T12', 'L1', 'L2', 'L3', 'L4', 'L5', 'Sacrum', 'Coccyx', 'Pelvis', 'Left Ilium', 'Right Ilium',
               'Occiput', 'Cervicothoracic Junction', 'Thoracolumbar Junction', 'Lumbosacral Junction', 'Sacroiliac (SI) Joint', 'Full Spine Adjustment'
             ],
-          ),
-          const SizedBox(height: 6),
-          // Quick Tags
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: ['Cervical', 'Thoracic', 'Lumbar', 'Sacrum', 'Pelvis', 'C2', 'T4', 'L5'].map((tag) {
-              final isSelected = _segmentsController.text.contains(tag);
-              return ActionChip(
-                label: Text(tag, style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600)),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                backgroundColor: isSelected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15) : null,
-                onPressed: () {
-                  final current = _segmentsController.text.trim();
-                  setState(() {
-                    if (current.isEmpty) {
-                      _segmentsController.text = tag;
-                    } else if (current.contains(tag)) {
-                      _segmentsController.text = current
-                          .split(',')
-                          .map((s) => s.trim())
-                          .where((s) => s != tag)
-                          .join(', ');
-                    } else {
-                      _segmentsController.text = '$current, $tag';
-                    }
-                  });
-                },
-              );
-            }).toList(),
           ),
           const SizedBox(height: 10),
 

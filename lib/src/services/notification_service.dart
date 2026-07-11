@@ -2,11 +2,19 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../routes/app_router.dart';
+import 'package:intl/intl.dart';
+import '../models/appointment.dart';
+import '../models/payment.dart';
+import '../features/appointments/appointment_repository.dart';
 
 // Background message handler required by firebase_messaging
 Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
@@ -58,6 +66,60 @@ Future<void> _firebaseBackgroundHandler(RemoteMessage message) async {
     details,
     payload: payload,
   );
+
+  final bodyText = body ?? '';
+
+  if (bodyText.toLowerCase().contains('appointment') || bodyText.toLowerCase().contains('reminder')) {
+    try {
+      final tts = FlutterTts();
+      await tts.setLanguage("en-US");
+      await tts.setSpeechRate(0.55);
+      await tts.setVolume(1.0);
+      await tts.setPitch(1.0);
+      await tts.speak(bodyText);
+    } catch (_) {}
+  }
+}
+
+@pragma('vm:entry-point')
+Future<void> _alarmCallback(int id) async {
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+    final prefs = await SharedPreferences.getInstance();
+    final title = prefs.getString('alarm_title_$id') ?? 'GCT Appointment Reminder';
+    final body = prefs.getString('alarm_body_$id');
+    final payload = prefs.getString('alarm_payload_$id');
+
+    if (body != null) {
+      final localNotifications = FlutterLocalNotificationsPlugin();
+      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      final initSettings = InitializationSettings(android: androidInit);
+      await localNotifications.initialize(initSettings);
+
+      const androidDetails = AndroidNotificationDetails(
+        'gct_scheduled_channel_v2',
+        'GCT Reminders',
+        channelDescription: 'Scheduled reminders for GCT app',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        visibility: NotificationVisibility.public,
+      );
+      final details = NotificationDetails(android: androidDetails);
+      await localNotifications.show(id, title, body, details, payload: payload);
+
+      // Trigger Text-to-Speech speaking of patient name/time/day details
+      try {
+        final tts = FlutterTts();
+        await tts.setLanguage("en-US");
+        await tts.setSpeechRate(0.55);
+        await tts.setVolume(1.0);
+        await tts.setPitch(1.0);
+        await tts.speak(body);
+      } catch (_) {}
+    }
+  } catch (_) {}
 }
 
 class NotificationService {
@@ -67,10 +129,19 @@ class NotificationService {
 
   FirebaseMessaging? _fcm;
   final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
+  final FlutterTts _tts = FlutterTts();
 
   Future<void> init() async {
     try {
       tz.initializeTimeZones();
+      try {
+        await _tts.setLanguage("en-US");
+        await _tts.setSpeechRate(0.55);
+        await _tts.setVolume(1.0);
+        await _tts.setPitch(1.0);
+      } catch (e) {
+        if (kDebugMode) print('TTS initialization failed: $e');
+      }
       // Configure Firebase Messaging only if Firebase is initialized.
       try {
         if (Firebase.apps.isNotEmpty) {
@@ -149,6 +220,35 @@ class NotificationService {
     }
   }
 
+  Future<void> speak(String text) async {
+    try {
+      await _tts.speak(text);
+    } catch (e) {
+      if (kDebugMode) print('TTS speak failed: $e');
+    }
+  }
+
+  Future<void> _speakAppointmentDetails(String appointmentId) async {
+    try {
+      final repo = AppointmentRepository();
+      final appointments = await repo.loadAppointments();
+      final apt = appointments.firstWhere((a) => a.id == appointmentId);
+      final String formattedTime;
+      final String formattedDayDate;
+      if (apt.scheduledAt != null) {
+        formattedTime = DateFormat('hh:mm a').format(apt.scheduledAt!.toLocal());
+        formattedDayDate = DateFormat('EEEE, MMMM d').format(apt.scheduledAt!.toLocal());
+      } else {
+        formattedTime = apt.time;
+        formattedDayDate = 'scheduled time';
+      }
+      final textToSpeak = 'Reminder. Appointment with ${apt.patientName} is scheduled on $formattedDayDate at $formattedTime.';
+      await speak(textToSpeak);
+    } catch (e) {
+      if (kDebugMode) print('Failed to speak appointment details: $e');
+    }
+  }
+
   Future<void> showLocalNotification(String title, String body, {String? payload}) async {
     const androidDetails = AndroidNotificationDetails(
       'gct_channel_01',
@@ -156,6 +256,9 @@ class NotificationService {
       channelDescription: 'General notifications for GCT app',
       importance: Importance.max,
       priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
     );
     const iosDetails = DarwinNotificationDetails();
 
@@ -167,6 +270,11 @@ class NotificationService {
       details,
       payload: payload,
     );
+
+    // Speak body if it is an appointment or reminder
+    if (body.toLowerCase().contains('appointment') || body.toLowerCase().contains('reminder')) {
+      await speak(body);
+    }
   }
 
   Future<String?> getDeviceToken() async {
@@ -207,6 +315,10 @@ class NotificationService {
 
   void _navigateToRoute(String route) {
     _performNavigation(route);
+    if (route.startsWith('/appointment/')) {
+      final appointmentId = route.substring('/appointment/'.length);
+      _speakAppointmentDetails(appointmentId);
+    }
   }
 
   Future<void> _performNavigation(String route) async {
@@ -230,6 +342,10 @@ class NotificationService {
     }
   }
 
+  static int getReminderId(String id) => (id.hashCode.abs() % 50000000) * 2;
+  static int getStartId(String id) => ((id.hashCode.abs() % 50000000) * 2) + 1;
+  static int getPaymentReminderId(String id) => (id.hashCode.abs() % 50000000) + 100000000;
+
   Future<void> scheduleLocalNotification({
     required int id,
     required String title,
@@ -241,33 +357,159 @@ class NotificationService {
       return;
     }
 
-    const androidDetails = AndroidNotificationDetails(
-      'gct_scheduled_channel',
-      'GCT Reminders',
-      channelDescription: 'Scheduled reminders for GCT app',
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-    const iosDetails = DarwinNotificationDetails();
-    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('alarm_title_$id', title);
+        await prefs.setString('alarm_body_$id', body);
+        await prefs.setString('alarm_payload_$id', payload ?? '');
 
-    final tzScheduledDate = tz.TZDateTime.from(scheduledDate.toUtc(), tz.UTC);
+        final success = await AndroidAlarmManager.oneShotAt(
+          scheduledDate,
+          id,
+          _alarmCallback,
+          alarmClock: true,
+          allowWhileIdle: true,
+          exact: true,
+          wakeup: true,
+        );
+        if (kDebugMode) {
+          print('AndroidAlarmManager scheduled alarm $id: $success');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('AndroidAlarmManager scheduling failed: $e');
+        }
+      }
+    } else {
+      const androidDetails = AndroidNotificationDetails(
+        'gct_scheduled_channel_v2',
+        'GCT Reminders',
+        channelDescription: 'Scheduled reminders for GCT app',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        visibility: NotificationVisibility.public,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        category: AndroidNotificationCategory.alarm,
+      );
+      const iosDetails = DarwinNotificationDetails();
+      final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
 
-    await _local.zonedSchedule(
-      id,
-      title,
-      body,
-      tzScheduledDate,
-      details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      payload: payload,
-    );
+      final tzScheduledDate = tz.TZDateTime.from(scheduledDate.toUtc(), tz.UTC);
+
+      try {
+        await _local.zonedSchedule(
+          id,
+          title,
+          body,
+          tzScheduledDate,
+          details,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          print('Exact schedule failed (falling back to inexact): $e');
+        }
+        try {
+          await _local.zonedSchedule(
+            id,
+            title,
+            body,
+            tzScheduledDate,
+            details,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+            payload: payload,
+          );
+        } catch (ex) {
+          if (kDebugMode) {
+            print('Inexact schedule failed: $ex');
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> scheduleAppointmentReminders(Appointment apt) async {
+    final now = DateTime.now();
+    final reminderId = getReminderId(apt.id);
+    final startId = getStartId(apt.id);
+    
+    await cancelNotification(reminderId);
+    await cancelNotification(startId);
+
+    if (apt.scheduledAt != null && apt.scheduledAt!.isAfter(now)) {
+      final statusLower = apt.status.toLowerCase();
+      if (statusLower == 'confirmed' || statusLower == 'pending') {
+        final reminderTime = apt.scheduledAt!.subtract(const Duration(hours: 2));
+        final formattedTime = DateFormat('hh:mm a').format(apt.scheduledAt!.toLocal());
+        final formattedDayDate = DateFormat('EEEE, MMM d').format(apt.scheduledAt!.toLocal());
+
+        if (reminderTime.isAfter(now)) {
+          await scheduleLocalNotification(
+            id: reminderId,
+            title: 'Upcoming Appointment Reminder ⏰',
+            body: 'Reminder: Appointment with ${apt.patientName} is scheduled on $formattedDayDate at $formattedTime.',
+            scheduledDate: reminderTime,
+            payload: '/appointment/${apt.id}',
+          );
+        }
+
+        await scheduleLocalNotification(
+          id: startId,
+          title: 'Appointment Starting Now! 📅',
+          body: 'Your appointment with ${apt.patientName} is starting now ($formattedTime).',
+          scheduledDate: apt.scheduledAt!,
+          payload: '/appointment/${apt.id}',
+        );
+      }
+    }
+  }
+
+  Future<void> syncScheduledNotifications(List<Appointment> appointments) async {
+    for (final apt in appointments) {
+      await scheduleAppointmentReminders(apt);
+    }
+  }
+
+  Future<void> syncPaymentReminders(List<Payment> payments) async {
+    final now = DateTime.now();
+    for (final payment in payments) {
+      final reminderId = getPaymentReminderId(payment.id);
+      await cancelNotification(reminderId);
+
+      if (payment.reminderDate != null && payment.reminderDate!.isAfter(now)) {
+        final balance = payment.amount - payment.paidAmount;
+        if (balance > 0) {
+          final formattedDate = DateFormat('MMM dd, yyyy').format(payment.reminderDate!.toLocal());
+          await scheduleLocalNotification(
+            id: reminderId,
+            title: 'Payment Reminder 💳',
+            body: 'Payment reminder: Balance of Rs. ${balance.toStringAsFixed(0)} for ${payment.patientName} is due.',
+            scheduledDate: payment.reminderDate!,
+            payload: '/dashboard',
+          );
+        }
+      }
+    }
   }
 
   Future<void> cancelNotification(int id) async {
     try {
       await _local.cancel(id);
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await AndroidAlarmManager.cancel(id);
+        } catch (_) {}
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('alarm_title_$id');
+      await prefs.remove('alarm_body_$id');
+      await prefs.remove('alarm_payload_$id');
     } catch (e) {
       if (kDebugMode) print('Failed to cancel notification $id: $e');
     }

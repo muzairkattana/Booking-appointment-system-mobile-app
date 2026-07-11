@@ -20,6 +20,20 @@ class AppUser {
     );
   }
 
+  AppUser copyWith({
+    String? uid,
+    String? email,
+    String? displayName,
+    String? phoneNumber,
+  }) {
+    return AppUser(
+      uid: uid ?? this.uid,
+      email: email ?? this.email,
+      displayName: displayName ?? this.displayName,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'uid': uid,

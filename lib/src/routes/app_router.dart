@@ -17,7 +17,11 @@ import '../features/appointments/appointment_detail_screen.dart';
 import '../features/auth/screens/splash_entry_screen.dart';
 import '../features/auth/screens/security_settings_screen.dart';
 import '../features/auth/screens/security_lock_screen.dart';
+import '../features/auth/screens/staff_lock_screen.dart';
 import '../features/auth/screens/staff_management_screen.dart';
+import '../features/auth/screens/staff_login_screen.dart';
+import '../features/dashboard/staff_dashboard_screen.dart';
+import '../features/chat/chat_screen.dart';
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -46,7 +50,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/care-tips', name: 'careTips', builder: (context, state) => const CareTipsScreen()),
       GoRoute(path: '/security-settings', name: 'securitySettings', builder: (context, state) => const SecuritySettingsScreen()),
       GoRoute(path: '/security-lock', name: 'securityLock', builder: (context, state) => const SecurityLockScreen()),
+      GoRoute(path: '/staff-lock', name: 'staffLock', builder: (context, state) => const StaffLockScreen()),
       GoRoute(path: '/staff-management', name: 'staffManagement', builder: (context, state) => const StaffManagementScreen()),
+      GoRoute(path: '/staff-login', name: 'staffLogin', builder: (context, state) => const StaffLoginScreen()),
+      GoRoute(path: '/staff-dashboard', name: 'staffDashboard', builder: (context, state) => const StaffDashboardScreen()),
+      GoRoute(path: '/chat', name: 'chat', builder: (context, state) => const ChatScreen()),
       GoRoute(
         path: '/appointment/:id',
         name: 'appointmentDetail',

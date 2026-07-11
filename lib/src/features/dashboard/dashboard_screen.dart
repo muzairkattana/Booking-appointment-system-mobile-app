@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/import_export_service.dart';
 import '../../services/app_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -22,6 +24,7 @@ import '../payments/payment_repository.dart';
 import '../../models/payment.dart';
 import '../notes/clinical_notes_repository.dart';
 import '../../services/repository_providers.dart';
+import '../../services/notification_service.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -279,6 +282,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Future<void> _loadAppointments() async {
     final appointments = await _repository.loadAppointments();
     final payments = await _paymentRepository.loadPayments();
+    
+    // Sync scheduled notifications in background on dashboard load
+    unawaited(NotificationService().syncScheduledNotifications(appointments));
+    unawaited(NotificationService().syncPaymentReminders(payments));
+
+    // Save doctor's email to settings/clinic_config for staff group chat lookup
+    if (!mounted) return;
+    final user = ref.read(authStateProvider).asData?.value;
+    if (user != null && user.email.isNotEmpty) {
+      unawaited(FirebaseFirestore.instance.collection('settings').doc('clinic_config').set({
+        'doctorEmail': user.email.trim().toLowerCase(),
+      }, SetOptions(merge: true)));
+    }
+
     if (!mounted) return;
     setState(() {
       _appointments = appointments;
@@ -808,6 +825,8 @@ class _QuickActionsGrid extends StatelessWidget {
         _QuickAction(icon: Icons.book_rounded, label: 'Notes', color: const Color(0xFFF59E0B), onTap: () => context.push('/notes')),
         _QuickAction(icon: Icons.calculate_rounded, label: 'Calculator', color: const Color(0xFF8B5CF6), onTap: () => context.push('/calculator')),
         _QuickAction(icon: Icons.health_and_safety_rounded, label: 'Care Tips', color: const Color(0xFFEF4444), onTap: () => context.push('/care-tips')),
+        _QuickAction(icon: Icons.forum_rounded, label: 'Clinic Chat', color: const Color(0xFF0E7490), onTap: () => context.push('/chat')),
+        _QuickAction(icon: Icons.manage_accounts_rounded, label: 'Staff Portal', color: const Color(0xFF0F7490), onTap: () => context.push('/staff-management')),
       ],
     );
   }

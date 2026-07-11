@@ -112,6 +112,66 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
     setState(() => _imagePath = result.path);
   }
 
+  Future<void> _showEditNameDialog(String currentName) async {
+    final controller = TextEditingController(text: currentName);
+    final formKey = GlobalKey<FormState>();
+    final cs = Theme.of(context).colorScheme;
+
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit Profile Name', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: 'Display Name',
+              hintText: 'Enter your name',
+              prefixIcon: Icon(Icons.person_outline_rounded),
+            ),
+            style: GoogleFonts.poppins(),
+            validator: (val) {
+              if (val == null || val.trim().isEmpty) {
+                return 'Name cannot be empty';
+              }
+              return null;
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(ctx, controller.text.trim());
+              }
+            },
+            child: Text('Save', style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty && newName != currentName) {
+      try {
+        await ref.read(authRepositoryProvider).updateUserProfileName(newName);
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile name updated successfully! 🎉')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to update name: ${e.toString()}')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -205,7 +265,25 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              Text(user.displayName, style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: -0.3)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(user.displayName, style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: -0.3)),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () => _showEditNameDialog(user.displayName),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.edit_rounded, size: 14, color: cs.primary),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 4),
               Text(user.email, style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface.withValues(alpha: 0.55))),
               const SizedBox(height: 12),

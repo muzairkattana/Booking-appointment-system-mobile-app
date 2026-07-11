@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 import '../../firebase_options.dart';
 import 'app_preferences.dart';
@@ -39,9 +40,9 @@ class AppBootstrapService {
   }
 
   Future<void> initializeAppServices({bool runNotificationsInBackground = true}) async {
-    // Try initializing Firebase but don't block the app startup on it.
-    // This lets the UI render faster while Firebase initializes in background.
-    unawaited(initializeFirebase());
+    // Await Firebase initialization so that Firebase features (Auth, Firestore, etc.)
+    // are fully set up before the UI starts building and attempting to access them.
+    await initializeFirebase();
 
     // Initialize lightweight services (auth/storage) needed for immediate UI.
     final authFuture = _initializeAuth();
@@ -117,6 +118,14 @@ class AppBootstrapService {
         supportedPlatform != TargetPlatform.iOS &&
         supportedPlatform != TargetPlatform.macOS) {
       return;
+    }
+
+    if (supportedPlatform == TargetPlatform.android) {
+      try {
+        await AndroidAlarmManager.initialize();
+      } catch (e) {
+        debugPrint('AndroidAlarmManager initialization failed: $e');
+      }
     }
 
     await NotificationService().init();

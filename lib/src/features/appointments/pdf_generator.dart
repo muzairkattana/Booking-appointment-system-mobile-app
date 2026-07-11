@@ -45,8 +45,32 @@ Future<Uint8List> generatePatientReportPdf(Appointment appointment) async {
 
   doc.addPage(
     pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(22),
+      pageTheme: pw.PageTheme(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(22),
+        buildBackground: (context) {
+          return pw.FullPage(
+            ignoreMargins: true,
+            child: pw.Center(
+              child: pw.Transform.rotate(
+                angle: -0.5,
+                child: pw.Opacity(
+                  opacity: 0.04,
+                  child: pw.Text(
+                    'GONSTEAD CHIROPRACTIC\nTREATMENT',
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(
+                      fontSize: 60,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.grey,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
       header: (context) {
         return pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -691,7 +715,7 @@ pw.Widget _buildDetailRow(String label, String value, PdfColor labelColor, PdfCo
         pw.SizedBox(
           width: 60,
           child: pw.Text(
-            label,
+            _cleanText(label),
             style: pw.TextStyle(
               fontSize: 9,
               color: labelColor,
@@ -700,7 +724,7 @@ pw.Widget _buildDetailRow(String label, String value, PdfColor labelColor, PdfCo
         ),
         pw.Expanded(
           child: pw.Text(
-            value,
+            _cleanText(value),
             style: pw.TextStyle(
               fontSize: 9,
               fontWeight: isBoldValue ? pw.FontWeight.bold : pw.FontWeight.normal,
@@ -855,8 +879,32 @@ Future<Uint8List> generateAllSessionsReportPdf(List<Appointment> sessions) async
   // Build the Report
   doc.addPage(
     pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(22),
+      pageTheme: pw.PageTheme(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(22),
+        buildBackground: (context) {
+          return pw.FullPage(
+            ignoreMargins: true,
+            child: pw.Center(
+              child: pw.Transform.rotate(
+                angle: -0.5,
+                child: pw.Opacity(
+                  opacity: 0.04,
+                  child: pw.Text(
+                    'GONSTEAD CHIROPRACTIC\nTREATMENT',
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(
+                      fontSize: 60,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.grey,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
       header: buildHeader,
       footer: buildFooter,
       build: (context) {
@@ -955,12 +1003,12 @@ Future<Uint8List> generateAllSessionsReportPdf(List<Appointment> sessions) async
                     child: pw.Container(
                       height: 8,
                       child: pw.Row(children: [
-                        if (progressPercent > 0)
+                        if (progressPercent > 0 && (progressPercent * 100).round() > 0)
                           pw.Expanded(
                             flex: (progressPercent * 100).round(),
                             child: pw.Container(color: primaryColor),
                           ),
-                        if (progressPercent < 1.0)
+                        if (progressPercent < 1.0 && ((1.0 - progressPercent) * 100).round() > 0)
                           pw.Expanded(
                             flex: ((1.0 - progressPercent) * 100).round(),
                             child: pw.Container(color: PdfColor.fromHex('#E2E8F0')),

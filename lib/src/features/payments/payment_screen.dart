@@ -243,7 +243,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
       if (_reminderDate != null && paidAmount < amount) {
         final remaining = amount - paidAmount;
         await NotificationService().scheduleLocalNotification(
-          id: pId.hashCode,
+          id: NotificationService.getPaymentReminderId(pId),
           title: 'Collect Outstanding Balance 💰',
           body: 'Collect outstanding balance of PKR ${remaining.toStringAsFixed(0)} from $patientName.',
           scheduledDate: _reminderDate!,
@@ -470,6 +470,30 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
                   reminderDate: reminderDate,
                 );
                 await _repository.savePayment(updated);
+
+                // Cancel old payment reminder notification
+                try {
+                  await NotificationService().cancelNotification(NotificationService.getPaymentReminderId(p.id));
+                } catch (e) {
+                  debugPrint('Failed to cancel payment reminder notification: $e');
+                }
+
+                // Schedule new balance collection reminder if there is outstanding amount and a reminder date is set
+                if (reminderDate != null && paidAmount < amount) {
+                  final remaining = amount - paidAmount;
+                  try {
+                    await NotificationService().scheduleLocalNotification(
+                      id: NotificationService.getPaymentReminderId(p.id),
+                      title: 'Collect Outstanding Balance 💰',
+                      body: 'Collect outstanding balance of PKR ${remaining.toStringAsFixed(0)} from ${nameCtrl.text.trim()}.',
+                      scheduledDate: reminderDate!,
+                      payload: '/payments',
+                    );
+                  } catch (e) {
+                    debugPrint('Payment notification failed: $e');
+                  }
+                }
+
                 if (mounted) {
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -521,6 +545,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
 
   Future<void> _deletePayment(String id) async {
     await _repository.deletePayment(id);
+    try {
+      await NotificationService().cancelNotification(NotificationService.getPaymentReminderId(id));
+    } catch (e) {
+      debugPrint('Failed to cancel payment reminder notification: $e');
+    }
     _loadPayments();
   }
 

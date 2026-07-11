@@ -236,7 +236,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with SingleTickerProv
                                           : const Text('Sign In'),
                                     ),
                                   ),
-
+                                  const SizedBox(height: 18),
+                                  Row(
+                                    children: [
+                                      Expanded(child: Divider(color: cs.onSurface.withOpacity(0.12))),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                                        child: Text(
+                                          'OR',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 10.5,
+                                            color: cs.onSurface.withOpacity(0.4),
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(child: Divider(color: cs.onSurface.withOpacity(0.12))),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 14),
+                                  TextButton.icon(
+                                    onPressed: () => context.go('/staff-login'),
+                                    icon: const Icon(Icons.badge_rounded, size: 18),
+                                    label: const Text('Staff Access Portal'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: cs.primary,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),

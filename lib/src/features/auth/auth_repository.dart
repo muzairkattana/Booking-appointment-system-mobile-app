@@ -323,6 +323,41 @@ class AuthRepository {
     _authStateController.add(null);
   }
 
+  Future<void> updateUserProfileName(String newName) async {
+    final cleanName = newName.trim();
+    if (cleanName.isEmpty) return;
+
+    if (await _ensureFirebaseInitialized() && FirebaseAuth.instance.currentUser != null) {
+      try {
+        await FirebaseAuth.instance.currentUser!.updateDisplayName(cleanName);
+        await FirebaseAuth.instance.currentUser!.reload();
+      } catch (e) {
+        debugPrint('Failed to update display name on Firebase: $e');
+      }
+    }
+
+    if (_cachedUser != null) {
+      final updatedUser = _cachedUser!.copyWith(displayName: cleanName);
+      final prefs = await _prefsFuture;
+      await _persistUser(updatedUser, prefs);
+
+      // Also update in registered users map locally so next sign-in has it
+      final usersJson = prefs.getString(_usersKey);
+      if (usersJson != null) {
+        try {
+          final decoded = jsonDecode(usersJson) as Map<String, dynamic>;
+          final normalizedEmail = updatedUser.email.toLowerCase();
+          if (decoded.containsKey(normalizedEmail)) {
+            final userMap = Map<String, dynamic>.from(decoded[normalizedEmail] as Map);
+            userMap['displayName'] = cleanName;
+            decoded[normalizedEmail] = userMap;
+            await prefs.setString(_usersKey, jsonEncode(decoded));
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
   Future<void> _persistUser(AppUser user, SharedPreferences prefs) async {
     await prefs.setString(_currentUserKey, jsonEncode(user.toJson()));
     _cachedUser = user;

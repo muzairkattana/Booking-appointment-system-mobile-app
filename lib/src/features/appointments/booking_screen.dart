@@ -252,27 +252,27 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
         formattedId = 'GCT-NSR-${seq.toString().padLeft(4, '0')}';
       }
 
-      await _repository.saveAppointment(
-        Appointment(
-          id: formattedId,
-          patientName: _nameController.text.trim(),
-          time: '$formattedDate • $_selectedSlot',
-          treatmentType: _service,
-          status: 'Pending',
-          scheduledAt: scheduledDateTime,
-          phoneNumber: _phoneController.text.trim(),
-          email: _emailController.text.trim(),
-          visitReason: _reasonController.text.trim(),
-          patientNote: _notesController.text.trim(),
-          updatedAt: DateTime.now(),
-          isEmergency: _isEmergency,
-          patientProfession: _professionController.text.trim(),
-          treatmentPlanTotalSessions: _treatmentPlanTotalSessions,
-          sessionNumber: _sessionNumber,
-          durationMinutes: _durationMinutes,
-        ),
+      final newAppt = Appointment(
+        id: formattedId,
+        patientName: _nameController.text.trim(),
+        time: '$formattedDate • $_selectedSlot',
+        treatmentType: _service,
+        status: 'Pending',
+        scheduledAt: scheduledDateTime,
+        phoneNumber: _phoneController.text.trim(),
+        email: _emailController.text.trim(),
+        visitReason: _reasonController.text.trim(),
+        patientNote: _notesController.text.trim(),
+        updatedAt: DateTime.now(),
+        isEmergency: _isEmergency,
+        patientProfession: _professionController.text.trim(),
+        treatmentPlanTotalSessions: _treatmentPlanTotalSessions,
+        sessionNumber: _sessionNumber,
+        durationMinutes: _durationMinutes,
       );
 
+      await _repository.saveAppointment(newAppt);
+ 
       // Trigger instant booking notification
       try {
         await NotificationService().showLocalNotification(
@@ -280,29 +280,9 @@ class _BookingScreenState extends ConsumerState<BookingScreen> with SingleTicker
           'Patient: ${_nameController.text.trim()} • $_selectedSlot on $formattedDate',
           payload: '/appointment/$formattedId',
         );
-
-        // Schedule a reminder 2 hours before scheduled time
-        if (scheduledDateTime.isAfter(DateTime.now())) {
-          final reminderTime = scheduledDateTime.subtract(const Duration(hours: 2));
-          if (reminderTime.isAfter(DateTime.now())) {
-            await NotificationService().scheduleLocalNotification(
-              id: formattedId.hashCode,
-              title: 'Upcoming Appointment Reminder ⏰',
-              body: 'Appointment with ${_nameController.text.trim()} is scheduled in 2 hours at $_selectedSlot.',
-              scheduledDate: reminderTime,
-              payload: '/appointment/$formattedId',
-            );
-          }
-
-          // Schedule a notification for the actual appointment start time
-          await NotificationService().scheduleLocalNotification(
-            id: formattedId.hashCode + 1,
-            title: 'Appointment Starting Now! 📅',
-            body: 'Your appointment with ${_nameController.text.trim()} is starting now ($_selectedSlot).',
-            scheduledDate: scheduledDateTime,
-            payload: '/appointment/$formattedId',
-          );
-        }
+ 
+        // Schedule dynamic alarm/notification reminders
+        await NotificationService().scheduleAppointmentReminders(newAppt);
       } catch (e) {
         debugPrint('Failed to trigger local notifications: $e');
       }
