@@ -91,8 +91,18 @@ erDiagram
         datetime reminderDate
     }
 
+    ChatMessage {
+        string id PK
+        string senderEmail
+        string senderName
+        string text
+        datetime timestamp
+        bool isStaff
+    }
+
     AppUser ||--o{ Appointment : "schedules / attends"
     Appointment ||--o| Payment : "generates billing"
+    AppUser ||--o{ ChatMessage : "sends"
 ```
 
 ---
@@ -100,7 +110,7 @@ erDiagram
 ## 🛠 Core Feature Mechanics
 
 ### 1. Security & Lock Flow
-- **PIN Lock Screen:** Enforces biometric scan (`local_auth`) and custom 4-digit PIN access upon app cold start and resumption.
+- **PIN Lock Screen:** Enforces biometric scan (`local_auth`) and custom 4-digit PIN access upon app cold start and resumption (both on main App and Staff App).
 - **Biometric Integration:** Integrates dynamically, aligning with the primary branding color theme.
 
 ### 2. Clinical Notes & Spinal Assessment
@@ -112,9 +122,17 @@ erDiagram
 - **Payment Lifecycle:** Tracks `totalAmount` versus `paidAmount` to dynamically update payment status as `paid`, `partially_paid`, or `unpaid`.
 - **Scheduled Reminders:** Allows staff to set follow-up reminder dates for outstanding balances, showing banners on the dashboard for quick tracking.
 
-### 4. Admin-Staff Portal Isolation
+### 4. Admin-Staff Portal Isolation & Modernization
 - **Staff Access:** Staff members login through the `gct_staff` app using restricted credentials.
 - **Master Kill Switch:** The doctor can toggle the `allowStaffView` property inside `settings/clinic_config` in real time. If disabled, all staff devices instantly show an "Access Suspended" warning overlay.
+- **Visual Modernization:** Modern theme-aware widgets (`PremiumCard` components) with full Light/Dark mode parity across the dashboard, login, and staff management screens.
+
+### 5. Real-Time Clinic Group Chat
+- **Role-Based Messaging:** Seamless real-time group messaging connecting doctors/admin and staff, with message bubbles color-coded and aligned by user role (Doctor vs. Staff).
+- **Admin Chat Controls:** Doctors can manage conversation logs with administrative options to delete specific messages via long-press/context menu, or clear the entire group chat history.
+
+### 6. Speech-Enabled Appointment Reminders
+- **Text-to-Speech (TTS) Engine:** Speech-enabled notifications and voice alerts for incoming appointments and reminders, complete with robust null-safety handling for background handlers.
 
 ---
 
@@ -136,7 +154,8 @@ gct/
 │   │       ├── notes/          # Spine segment mapping and clinic history logs
 │   │       ├── payments/       # Ledger logs and payment dialog entries
 │   │       ├── calculator/     # Quick cost and invoice calculator
-│   │       └── analytics/      # Patient charts and reporting metrics
+│   │       ├── analytics/      # Patient charts and reporting metrics
+│   │       └── chat/           # Real-time Clinic Group Chat with admin delete controls
 │   └── main.dart               # Main App initialization & Firebase loading
 │
 └── gct_staff/                  # Staff Portal application
