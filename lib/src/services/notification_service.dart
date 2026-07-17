@@ -263,17 +263,50 @@ class NotificationService {
     const iosDetails = DarwinNotificationDetails();
 
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-    await _local.show(
-      0,
-      title,
-      body,
-      details,
-      payload: payload,
-    );
+    await _local.show(0, title, body, details, payload: payload);
 
-    // Speak body if it is an appointment or reminder
     if (body.toLowerCase().contains('appointment') || body.toLowerCase().contains('reminder')) {
       await speak(body);
+    }
+  }
+
+  /// Shows a local notification for a new chat message.
+  Future<void> showChatNotification({
+    required String senderName,
+    required String message,
+    required bool isStaff,
+  }) async {
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        'gct_chat_channel',
+        'GCT Chat',
+        channelDescription: 'New message notifications for the clinic group chat',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        visibility: NotificationVisibility.public,
+        icon: '@mipmap/ic_launcher',
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+      final title = isStaff ? '💬 Staff: $senderName' : '💬 Doctor: $senderName';
+      final body = message.length > 80 ? '${message.substring(0, 80)}…' : message;
+
+      await _local.show(
+        99,   // fixed ID so repeated messages replace each other
+        title,
+        body,
+        details,
+        payload: '/chat',
+      );
+    } catch (e) {
+      if (kDebugMode) print('showChatNotification failed: $e');
     }
   }
 
@@ -299,17 +332,11 @@ class NotificationService {
     if (appointmentId != null && appointmentId.toString().isNotEmpty) {
       return '/appointment/${appointmentId.toString()}';
     }
-
     final screen = data['screen']?.toString().toLowerCase();
-    if (screen == 'profile') {
-      return '/profile';
-    }
-    if (screen == 'appointments') {
-      return '/appointments';
-    }
-    if (screen == 'dashboard') {
-      return '/dashboard';
-    }
+    if (screen == 'chat') return '/chat';
+    if (screen == 'profile') return '/profile';
+    if (screen == 'appointments') return '/appointments';
+    if (screen == 'dashboard') return '/dashboard';
     return '/dashboard';
   }
 

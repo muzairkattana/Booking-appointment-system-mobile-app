@@ -1,601 +1,625 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../services/app_preferences.dart';
+import '../../services/notification_service.dart';
 import '../../theme/app_theme.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
-
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
-  final _messageController = TextEditingController();
-  final _scrollController = ScrollController();
-  String _currentUserEmail = '';
-  String _currentUserName = '';
+class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObserver {
+  final _msgCtrl = TextEditingController();
+  final _scrollCtrl = ScrollController();
+  final _focusNode = FocusNode();
+
+  String _currentEmail = '';
+  String _currentName = '';
   bool _isStaff = false;
-  bool _isLoadingUser = true;
+  bool _isLoading = true;
+  bool _isSending = false;
+  bool _showScrollBtn = false;
+  int _unreadCount = 0;
+  Timestamp? _lastSeen;
+  List<QueryDocumentSnapshot>? _prevDocs;
 
   @override
   void initState() {
     super.initState();
-    _loadUserInfo();
+    WidgetsBinding.instance.addObserver(this);
+    _scrollCtrl.addListener(_onScroll);
+    _init();
   }
 
   @override
   void dispose() {
-    _messageController.dispose();
-    _scrollController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _msgCtrl.dispose();
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
+    _focusNode.dispose();
+    _markSeen();
     super.dispose();
   }
 
-  Future<void> _loadUserInfo() async {
-    final prefs = await AppPreferences.instance.prefs;
-    final isStaffLoggedIn = prefs.getBool('is_staff_logged_in') ?? false;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _markSeen();
+  }
 
-    if (isStaffLoggedIn) {
-      final staffEmail = prefs.getString('logged_in_staff_email') ?? 'staff@gct.com';
+  void _onScroll() {
+    final far = _scrollCtrl.hasClients && _scrollCtrl.position.pixels > 250;
+    if (far != _showScrollBtn) setState(() => _showScrollBtn = far);
+  }
+
+  Future<void> _init() async {
+    final prefs = await AppPreferences.instance.prefs;
+    final isStaff = prefs.getBool('is_staff_logged_in') ?? false;
+    if (isStaff) {
+      final email = prefs.getString('logged_in_staff_email') ?? 'staff@gct.com';
       setState(() {
         _isStaff = true;
-        _currentUserEmail = staffEmail;
-        _currentUserName = 'Staff (${staffEmail.split('@').first})';
-        _isLoadingUser = false;
+        _currentEmail = email;
+        _currentName = 'Staff (${email.split('@').first})';
+        _isLoading = false;
       });
     } else {
       final user = FirebaseAuth.instance.currentUser;
       setState(() {
         _isStaff = false;
-        _currentUserEmail = user?.email ?? 'doctor@gct.com';
-        _currentUserName = 'Doctor';
-        _isLoadingUser = false;
+        _currentEmail = user?.email ?? 'doctor@gct.com';
+        _currentName = 'Doctor';
+        _isLoading = false;
       });
     }
+    await _loadLastSeen();
+    await _markSeen();
   }
 
-  Future<void> _sendMessage() async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
+  Future<void> _loadLastSeen() async {
+    if (_currentEmail.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('chats').doc('group_chat').collection('user_meta').doc(_currentEmail).get();
+      if (doc.exists) {
+        setState(() => _lastSeen = doc.data()?['lastSeenAt'] as Timestamp?);
+      }
+    } catch (_) {}
+  }
 
-    _messageController.clear();
-
+  Future<void> _markSeen() async {
+    if (_currentEmail.isEmpty) return;
     try {
       await FirebaseFirestore.instance
-          .collection('chats')
-          .doc('group_chat')
-          .collection('messages')
-          .add({
-        'senderEmail': _currentUserEmail,
-        'senderName': _currentUserName,
+          .collection('chats').doc('group_chat').collection('user_meta').doc(_currentEmail)
+          .set({'lastSeenAt': FieldValue.serverTimestamp(), 'userEmail': _currentEmail, 'userName': _currentName},
+              SetOptions(merge: true));
+      if (mounted) setState(() { _lastSeen = Timestamp.now(); _unreadCount = 0; });
+    } catch (_) {}
+  }
+
+  void _handleNewDocs(List<QueryDocumentSnapshot> docs) {
+    if (_prevDocs == null) { _prevDocs = docs; return; }
+    final prevIds = _prevDocs!.map((d) => d.id).toSet();
+    for (final doc in docs.where((d) => !prevIds.contains(d.id))) {
+      final data = doc.data() as Map<String, dynamic>;
+      final sender = data['senderEmail'] as String? ?? '';
+      if (sender != _currentEmail) {
+        final name = data['senderName'] as String? ?? 'Someone';
+        final text = data['text'] as String? ?? '📎';
+        final isStaff = data['isStaff'] as bool? ?? false;
+        NotificationService().showChatNotification(senderName: name, message: text, isStaff: isStaff);
+        if (_showScrollBtn) setState(() => _unreadCount++);
+      }
+    }
+    _prevDocs = docs;
+  }
+
+  Future<void> _send() async {
+    final text = _msgCtrl.text.trim();
+    if (text.isEmpty || _isSending) return;
+    setState(() => _isSending = true);
+    _msgCtrl.clear();
+    try {
+      final ref = await FirebaseFirestore.instance
+          .collection('chats').doc('group_chat').collection('messages').add({
+        'senderEmail': _currentEmail,
+        'senderName': _currentName,
         'text': text,
         'timestamp': FieldValue.serverTimestamp(),
         'isStaff': _isStaff,
+        'messageType': 'text',
+        'status': 'sent',
       });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to send message: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
+      unawaited(_updateStatus(ref.id, 'delivered', ms: 800));
+      await Future.delayed(const Duration(milliseconds: 120));
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       }
+    } catch (e) {
+      _snack('Failed to send: $e', err: true);
+    } finally {
+      if (mounted) setState(() => _isSending = false);
     }
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
-        backgroundColor: isError ? Colors.redAccent : AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  Future<void> _deleteMessage(String docId) async {
+  Future<void> _updateStatus(String id, String status, {int ms = 0}) async {
+    if (ms > 0) await Future.delayed(Duration(milliseconds: ms));
     try {
       await FirebaseFirestore.instance
-          .collection('chats')
-          .doc('group_chat')
-          .collection('messages')
-          .doc(docId)
-          .delete();
-      _showSnackBar('Message deleted successfully.');
+          .collection('chats').doc('group_chat').collection('messages').doc(id).update({'status': status});
+    } catch (_) {}
+  }
+
+  Future<void> _delete(String docId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('chats').doc('group_chat').collection('messages').doc(docId).delete();
     } catch (e) {
-      _showSnackBar('Failed to delete message: $e', isError: true);
+      _snack('Failed to delete: $e', err: true);
     }
   }
 
-  Future<void> _clearAllChat() async {
-    final confirm = await showDialog<bool>(
+  Future<void> _clearAll() async {
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Clear All Chat', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text('Are you sure you want to delete all messages in this group chat? This action cannot be undone.', style: GoogleFonts.poppins()),
+        content: Text('Delete all messages? This cannot be undone.', style: GoogleFonts.poppins()),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Cancel', style: GoogleFonts.poppins())),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Clear All', style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Clear', style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.bold))),
         ],
       ),
     );
-
-    if (confirm != true) return;
-
+    if (ok != true) return;
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('chats')
-          .doc('group_chat')
-          .collection('messages')
-          .get();
-
+      final snap = await FirebaseFirestore.instance.collection('chats').doc('group_chat').collection('messages').get();
       final batch = FirebaseFirestore.instance.batch();
-      for (var doc in snapshot.docs) {
-        batch.delete(doc.reference);
-      }
+      for (final d in snap.docs) batch.delete(d.reference);
       await batch.commit();
-      _showSnackBar('All chat history cleared.');
+      _snack('Chat cleared.');
     } catch (e) {
-      _showSnackBar('Failed to clear chat: $e', isError: true);
+      _snack('Failed: $e', err: true);
     }
   }
 
-  Future<void> _clearSpecificStaffChat() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('chats')
-          .doc('group_chat')
-          .collection('messages')
-          .where('isStaff', isEqualTo: true)
-          .get();
-
-      if (snapshot.docs.isEmpty) {
-        _showSnackBar('No staff messages found to clear.');
-        return;
-      }
-
-      final staffMap = <String, String>{};
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final email = data['senderEmail'] as String?;
-        final name = data['senderName'] as String?;
-        if (email != null && name != null) {
-          staffMap[email] = name;
-        }
-      }
-
-      if (!mounted) return;
-
-      final selectedEmail = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('Clear Specific Staff Chat', style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16)),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView(
-              shrinkWrap: true,
-              children: staffMap.entries.map((entry) {
-                return ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person)),
-                  title: Text(entry.value, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(entry.key, style: GoogleFonts.poppins(fontSize: 12)),
-                  onTap: () => Navigator.pop(ctx, entry.key),
-                );
-              }).toList(),
+  void _showOptions(String docId, String text, bool isMe, bool canDelete) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(4))),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded, color: AppColors.primary),
+              title: Text('Copy message', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: text));
+                Navigator.pop(context);
+                _snack('Copied to clipboard');
+              },
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: GoogleFonts.poppins())),
+            if (canDelete)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                title: Text('Delete message', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.redAccent)),
+                onTap: () { Navigator.pop(context); _delete(docId); },
+              ),
+            const SizedBox(height: 8),
           ],
         ),
-      );
+      ),
+    );
+  }
 
-      if (selectedEmail == null) return;
+  void _snack(String msg, {bool err = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
+      backgroundColor: err ? Colors.redAccent : AppColors.primary,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ));
+  }
 
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('Confirm Deletion', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Text('Are you sure you want to delete all messages sent by $selectedEmail?', style: GoogleFonts.poppins()),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Cancel', style: GoogleFonts.poppins())),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text('Delete All', style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      );
-
-      if (confirm != true) return;
-
-      final deleteSnapshot = await FirebaseFirestore.instance
-          .collection('chats')
-          .doc('group_chat')
-          .collection('messages')
-          .where('senderEmail', isEqualTo: selectedEmail)
-          .get();
-
-      final batch = FirebaseFirestore.instance.batch();
-      for (var doc in deleteSnapshot.docs) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-      _showSnackBar('Cleared messages from $selectedEmail.');
-    } catch (e) {
-      _showSnackBar('Failed to clear staff messages: $e', isError: true);
-    }
+  String _dateLabel(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final msgDay = DateTime(d.year, d.month, d.day);
+    if (msgDay == today) return 'Today';
+    if (msgDay == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    return DateFormat('MMMM d, y').format(d);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingUser) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final cs = Theme.of(context).colorScheme;
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5FB);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.forum_rounded, color: AppColors.primary, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Clinic Group Chat',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 16),
-                ),
-                Text(
-                  'Logged in as $_currentUserName',
-                  style: GoogleFonts.poppins(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ],
+      backgroundColor: bg,
+      appBar: _buildAppBar(isDark),
+      body: Column(children: [
+        _buildBanner(),
+        Expanded(child: _buildList(isDark, bg)),
+        _buildInput(isDark),
+      ]),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(bool isDark) {
+    return AppBar(
+      elevation: 0,
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      surfaceTintColor: Colors.transparent,
+      titleSpacing: 0,
+      title: Row(children: [
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [AppColors.primary, AppColors.primaryDark]),
+            shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))],
+          ),
+          child: const Icon(Icons.forum_rounded, color: Colors.white, size: 17),
         ),
-        actions: [
-          if (!_isStaff)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded),
-              onSelected: (val) {
-                if (val == 'clear_all') {
-                  _clearAllChat();
-                } else if (val == 'clear_staff') {
-                  _clearSpecificStaffChat();
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'clear_all',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent),
-                      const SizedBox(width: 8),
-                      Text('Clear All Chat', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'clear_staff',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.person_remove_rounded, color: Colors.amber),
-                      const SizedBox(width: 8),
-                      Text('Clear Staff Chat', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-        ],
+        const SizedBox(width: 12),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Clinic Chat', style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 15)),
+          Row(children: [
+            Container(width: 7, height: 7, margin: const EdgeInsets.only(right: 5),
+                decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
+            Text('Active · Clinic Team', style: GoogleFonts.poppins(fontSize: 10, color: Colors.green, fontWeight: FontWeight.w600)),
+          ]),
+        ]),
+      ]),
+      actions: [
+        if (!_isStaff)
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            onSelected: (v) { if (v == 'clear') _clearAll(); },
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'clear', child: Row(children: [
+                const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 20),
+                const SizedBox(width: 10),
+                Text('Clear All Chat', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+              ])),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [AppColors.primary.withOpacity(0.07), AppColors.accent.withOpacity(0.03)]),
       ),
-      body: Column(
-        children: [
-          // Info banner
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: AppColors.primary.withOpacity(0.05),
-            child: Row(
-              children: [
-                const Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'This is a private group chat for Gonstead Clinic doctor and staff.',
-                    style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
-                  ),
+      child: Row(children: [
+        Icon(Icons.lock_outline_rounded, size: 12, color: AppColors.primary),
+        const SizedBox(width: 6),
+        Expanded(child: Text('Private clinic team chat · End-to-end secured',
+            style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.primary, fontWeight: FontWeight.w600))),
+        Text('You: $_currentName', style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey[500], fontWeight: FontWeight.w500)),
+      ]),
+    );
+  }
+
+  Widget _buildList(bool isDark, Color bg) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chats').doc('group_chat').collection('messages')
+          .orderBy('timestamp', descending: true).snapshots(),
+      builder: (context, snap) {
+        if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = snap.data?.docs ?? [];
+        if (snap.connectionState == ConnectionState.active) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _handleNewDocs(docs));
+        }
+        if (docs.isEmpty) return _emptyState();
+
+        // Calculate first unread index
+        int firstUnreadIdx = -1;
+        if (_lastSeen != null) {
+          for (int i = 0; i < docs.length; i++) {
+            final d = docs[i].data() as Map<String, dynamic>;
+            final ts = d['timestamp'] as Timestamp?;
+            final se = d['senderEmail'] as String? ?? '';
+            if (ts != null && ts.compareTo(_lastSeen!) > 0 && se != _currentEmail) {
+              firstUnreadIdx = i;
+            }
+          }
+        }
+        final unreadTotal = firstUnreadIdx + 1;
+
+        return Stack(children: [
+          ListView.builder(
+            controller: _scrollCtrl,
+            reverse: true,
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            itemCount: docs.length,
+            itemBuilder: (_, i) {
+              final data = docs[i].data() as Map<String, dynamic>;
+              final id = docs[i].id;
+              final senderEmail = data['senderEmail'] as String? ?? '';
+              final senderName = data['senderName'] as String? ?? '';
+              final text = data['text'] as String? ?? '';
+              final ts = data['timestamp'] as Timestamp?;
+              final isMsgStaff = data['isStaff'] as bool? ?? false;
+              final status = data['status'] as String? ?? 'sent';
+              final isMe = senderEmail == _currentEmail;
+              final canDelete = isMe || (!_isStaff && isMsgStaff);
+
+              // Date separator
+              Widget? dateSep;
+              if (ts != null) {
+                final d = ts.toDate().toLocal();
+                bool showDate = i == docs.length - 1;
+                if (!showDate && i < docs.length - 1) {
+                  final nd = docs[i + 1].data() as Map<String, dynamic>;
+                  final nts = (nd['timestamp'] as Timestamp?)?.toDate().toLocal();
+                  if (nts != null) {
+                    final a = DateTime(d.year, d.month, d.day);
+                    final b = DateTime(nts.year, nts.month, nts.day);
+                    showDate = a != b;
+                    if (showDate) dateSep = _dateSep(_dateLabel(nts));
+                  }
+                }
+                if (i == docs.length - 1) dateSep = _dateSep(_dateLabel(d));
+              }
+
+              return Column(children: [
+                if (i == firstUnreadIdx && unreadTotal > 0) _unreadDivider(unreadTotal),
+                if (dateSep != null) dateSep,
+                _bubble(
+                  docId: id, isMe: isMe, senderName: senderName, text: text,
+                  ts: ts, isMsgStaff: isMsgStaff, status: status,
+                  canDelete: canDelete, isDark: isDark,
                 ),
-              ],
-            ),
+              ]);
+            },
           ),
-
-          // Messages List
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('chats')
-                  .doc('group_chat')
-                  .collection('messages')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Error loading chat: ${snapshot.error}',
-                      style: GoogleFonts.poppins(),
-                    ),
-                  );
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final docs = snapshot.data?.docs ?? [];
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.chat_bubble_outline_rounded, size: 48, color: Colors.grey.withOpacity(0.5)),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No messages yet',
-                          style: GoogleFonts.poppins(color: Colors.grey, fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          'Send a message to start the conversation!',
-                          style: GoogleFonts.poppins(color: Colors.grey, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final docId = docs[index].id;
-                    final senderEmail = data['senderEmail'] ?? '';
-                    final senderName = data['senderName'] ?? '';
-                    final text = data['text'] ?? '';
-                    final timestamp = data['timestamp'] as Timestamp?;
-                    final isMsgStaff = data['isStaff'] ?? false;
-
-                    final isMe = senderEmail == _currentUserEmail;
-                    final canDelete = isMe || (!_isStaff && isMsgStaff);
-
-                    // Formatted time
-                    String timeStr = '';
-                    if (timestamp != null) {
-                      timeStr = DateFormat('hh:mm a').format(timestamp.toDate().toLocal());
-                    }
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12.0),
-                      child: GestureDetector(
-                        onLongPress: canDelete
-                            ? () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: Text('Delete Message', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-                                    content: Text('Are you sure you want to delete this message?', style: GoogleFonts.poppins()),
-                                    actions: [
-                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Cancel', style: GoogleFonts.poppins())),
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(ctx, true),
-                                        child: Text('Delete', style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (confirm == true) {
-                                  _deleteMessage(docId);
-                                }
-                              }
-                            : null,
-                        child: Row(
-                          mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (!isMe) ...[
-                              CircleAvatar(
-                                radius: 16,
-                                backgroundColor: isMsgStaff
-                                    ? AppColors.primary.withOpacity(0.1)
-                                    : AppColors.statusPending.withOpacity(0.1),
-                                child: Icon(
-                                  isMsgStaff ? Icons.badge_outlined : Icons.local_hospital_outlined,
-                                  size: 16,
-                                  color: isMsgStaff ? AppColors.primary : AppColors.statusPending,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                children: [
-                                  if (!isMe) ...[
-                                    Text(
-                                      senderName,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 3),
-                                  ],
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      gradient: isMe
-                                          ? LinearGradient(
-                                              colors: isDark
-                                                  ? [AppColors.primary, AppColors.accent]
-                                                  : [AppColors.primary, AppColors.primaryDark],
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                            )
-                                          : null,
-                                      color: isMe
-                                          ? null
-                                          : (isDark ? const Color(0xFF1E293B) : Colors.grey[200]),
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: const Radius.circular(16),
-                                        topRight: const Radius.circular(16),
-                                        bottomLeft: isMe ? const Radius.circular(16) : Radius.zero,
-                                        bottomRight: isMe ? Radius.zero : const Radius.circular(16),
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.03),
-                                          blurRadius: 5,
-                                          offset: const Offset(0, 2),
-                                        )
-                                      ],
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          text,
-                                          style: GoogleFonts.poppins(
-                                            color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
-                                            fontSize: 13.5,
-                                          ),
-                                        ),
-                                        if (timeStr.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            timeStr,
-                                            style: GoogleFonts.poppins(
-                                              color: isMe ? Colors.white60 : Colors.grey[500],
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (isMe) ...[
-                              const SizedBox(width: 8),
-                              CircleAvatar(
-                                radius: 16,
-                                backgroundColor: _isStaff
-                                    ? AppColors.primary.withOpacity(0.1)
-                                    : AppColors.statusPending.withOpacity(0.1),
-                                child: Icon(
-                                  _isStaff ? Icons.badge_outlined : Icons.local_hospital_outlined,
-                                  size: 16,
-                                  color: _isStaff ? AppColors.primary : AppColors.statusPending,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-
-          // Message Input Field
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, -3),
-                )
-              ],
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      style: GoogleFonts.poppins(fontSize: 14),
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        hintText: 'Type your message...',
-                        hintStyle: GoogleFonts.poppins(fontSize: 13.5),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                        fillColor: isDark ? const Color(0xFF1E293B) : Colors.grey[100],
-                        filled: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
+          if (_showScrollBtn)
+            Positioned(
+              bottom: 12, right: 12,
+              child: GestureDetector(
+                onTap: () {
+                  _scrollCtrl.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+                  _markSeen();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary, shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 3))],
                   ),
-                  const SizedBox(width: 8),
+                  child: Stack(clipBehavior: Clip.none, children: [
+                    const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 24),
+                    if (_unreadCount > 0)
+                      Positioned(top: -8, right: -8, child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                        child: Text(_unreadCount > 9 ? '9+' : '$_unreadCount',
+                            style: GoogleFonts.poppins(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                      )),
+                  ]),
+                ),
+              ),
+            ),
+        ]);
+      },
+    );
+  }
+
+  Widget _emptyState() {
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Container(
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.08), shape: BoxShape.circle),
+        child: Icon(Icons.chat_bubble_outline_rounded, size: 52, color: AppColors.primary.withOpacity(0.5)),
+      ),
+      const SizedBox(height: 16),
+      Text('No messages yet', style: GoogleFonts.poppins(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.grey[600])),
+      const SizedBox(height: 6),
+      Text('Be the first to say something!', style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[400])),
+    ]));
+  }
+
+  Widget _dateSep(String label) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        decoration: BoxDecoration(color: Colors.grey.withOpacity(0.14), borderRadius: BorderRadius.circular(20)),
+        child: Text(label, style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
+  Widget _unreadDivider(int count) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(children: [
+        Expanded(child: Divider(color: AppColors.primary.withOpacity(0.4))),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.12), borderRadius: BorderRadius.circular(20)),
+          child: Text('$count unread message${count > 1 ? 's' : ''}',
+              style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w700)),
+        ),
+        Expanded(child: Divider(color: AppColors.primary.withOpacity(0.4))),
+      ]),
+    );
+  }
+
+  Widget _bubble({
+    required String docId, required bool isMe, required String senderName,
+    required String text, required Timestamp? ts, required bool isMsgStaff,
+    required String status, required bool canDelete, required bool isDark,
+  }) {
+    final timeStr = ts != null ? DateFormat('hh:mm a').format(ts.toDate().toLocal()) : '';
+    final bubbleBg = isDark ? const Color(0xFF1E293B) : Colors.grey[200]!;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: GestureDetector(
+        onLongPress: () => _showOptions(docId, text, isMe, canDelete),
+        child: Row(
+          mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!isMe) ...[
+              CircleAvatar(
+                radius: 15,
+                backgroundColor: isMsgStaff ? AppColors.primary.withOpacity(0.12) : AppColors.accent.withOpacity(0.15),
+                child: Icon(isMsgStaff ? Icons.badge_rounded : Icons.local_hospital_rounded,
+                    size: 14, color: isMsgStaff ? AppColors.primary : AppColors.accent),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Flexible(
+              child: Column(
+                crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  if (!isMe)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 3),
+                      child: Text(senderName,
+                          style: GoogleFonts.poppins(fontSize: 10.5, fontWeight: FontWeight.w700,
+                              color: isMsgStaff ? AppColors.primary : AppColors.accent)),
+                    ),
                   Container(
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
+                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: isMe ? const LinearGradient(
+                        colors: [AppColors.primary, AppColors.primaryDark],
+                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+                      ) : null,
+                      color: isMe ? null : bubbleBg,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(18),
+                        topRight: const Radius.circular(18),
+                        bottomLeft: isMe ? const Radius.circular(18) : const Radius.circular(4),
+                        bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(18),
+                      ),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6, offset: const Offset(0, 2))],
                     ),
-                    child: IconButton(
-                      icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                      onPressed: _sendMessage,
-                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      Text(text,
+                          style: GoogleFonts.poppins(
+                            color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                            fontSize: 13.5,
+                          )),
+                      const SizedBox(height: 4),
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(timeStr, style: GoogleFonts.poppins(
+                            color: isMe ? Colors.white60 : Colors.grey[500], fontSize: 9.5, fontWeight: FontWeight.w600)),
+                        if (isMe) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            status == 'seen' ? Icons.done_all_rounded : status == 'delivered' ? Icons.done_all_rounded : Icons.done_rounded,
+                            size: 13,
+                            color: status == 'seen' ? Colors.lightBlueAccent : Colors.white70,
+                          ),
+                        ],
+                      ]),
+                    ]),
                   ),
                 ],
               ),
             ),
+            if (isMe) ...[
+              const SizedBox(width: 6),
+              CircleAvatar(
+                radius: 15,
+                backgroundColor: _isStaff ? AppColors.primary.withOpacity(0.12) : AppColors.accent.withOpacity(0.15),
+                child: Icon(_isStaff ? Icons.badge_rounded : Icons.local_hospital_rounded,
+                    size: 14, color: _isStaff ? AppColors.primary : AppColors.accent),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInput(bool isDark) {
+    final inputBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: inputBg,
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, -3))],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5FB),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: AppColors.primary.withOpacity(0.15)),
+              ),
+              child: TextField(
+                controller: _msgCtrl,
+                focusNode: _focusNode,
+                style: GoogleFonts.poppins(fontSize: 14),
+                textCapitalization: TextCapitalization.sentences,
+                maxLines: 5,
+                minLines: 1,
+                decoration: InputDecoration(
+                  hintText: 'Type a message…',
+                  hintStyle: GoogleFonts.poppins(fontSize: 13.5, color: Colors.grey[400]),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  border: InputBorder.none,
+                ),
+                onSubmitted: (_) => _send(),
+              ),
+            ),
           ),
-        ],
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: _isSending ? null : _send,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [AppColors.primary, AppColors.primaryDark]),
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 3))],
+              ),
+              child: _isSending
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+            ),
+          ),
+        ]),
       ),
     );
   }
