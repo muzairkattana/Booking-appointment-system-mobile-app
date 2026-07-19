@@ -179,7 +179,7 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
                         controller: _emailController,
                         decoration: InputDecoration(
                           labelText: 'Email Address',
-                          prefixIcon: const Icon(Icons.email_outlined, color: brandColor),
+                          prefixIcon: Icon(Icons.email_outlined, color: brandColor),
                           filled: true,
                           fillColor: Colors.grey.shade50,
                           border: OutlineInputBorder(
@@ -192,7 +192,7 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: brandColor, width: 1.5),
+                            borderSide: BorderSide(color: brandColor, width: 1.5),
                           ),
                         ),
                         keyboardType: TextInputType.emailAddress,
@@ -214,7 +214,7 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
                         obscureText: _obscurePassword,
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: brandColor),
+                          prefixIcon: Icon(Icons.lock_outline_rounded, color: brandColor),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
@@ -234,7 +234,7 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: brandColor, width: 1.5),
+                            borderSide: BorderSide(color: brandColor, width: 1.5),
                           ),
                         ),
                         validator: (value) {
@@ -251,7 +251,7 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
 
                       // Login button
                       _isLoading
-                          ? const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(brandColor)))
+                          ? Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(brandColor)))
                           : ElevatedButton(
                               onPressed: _login,
                               style: ElevatedButton.styleFrom(

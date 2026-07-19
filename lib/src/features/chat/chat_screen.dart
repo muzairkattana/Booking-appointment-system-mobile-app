@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -271,6 +272,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
       surfaceTintColor: Colors.transparent,
       titleSpacing: 0,
+
+      // 1. Leading back button
+      leading: IconButton(
+        icon: Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: isDark ? Colors.white : const Color(0xFF0F172A),
+            size: 20
+        ),
+        onPressed: () {
+          // 2. Pop if it can, otherwise hard-route to dashboard
+          if (context.canPop()) {
+            context.pop();
+          } else {
+            context.go('/dashboard');
+          }
+        },
+      ),
+
       title: Row(children: [
         Container(
           padding: const EdgeInsets.all(9),
