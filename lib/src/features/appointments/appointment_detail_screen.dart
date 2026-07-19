@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../models/appointment.dart';
 import 'appointment_repository.dart';
@@ -26,6 +27,47 @@ class AppointmentDetailScreen extends ConsumerStatefulWidget {
 class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScreen> {
   AppointmentRepository get _repo => ref.read(appointmentRepositoryProvider);
   final _noteController = TextEditingController();
+
+  Future<void> _launchWhatsApp(String phone, String patientName, String dateStr) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'\s+|-|\(|\)'), '');
+    final message = Uri.encodeComponent(
+        "Hello $patientName, this is a reminder for your chiropractic appointment scheduled on $dateStr at Gonstead Chiropractic Treatment. Please let us know if you need to reschedule. Thank you!");
+    String finalPhone = cleanPhone;
+    if (!cleanPhone.startsWith('+') && !cleanPhone.startsWith('00')) {
+      if (cleanPhone.startsWith('0')) {
+        finalPhone = '+92${cleanPhone.substring(1)}';
+      } else {
+        finalPhone = '+92$cleanPhone';
+      }
+    }
+    final url = "https://wa.me/${finalPhone.replaceAll('+', '')}?text=$message";
+    try {
+      if (await canLaunchUrlString(url)) {
+        await launchUrlString(url, mode: LaunchMode.externalApplication);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch WhatsApp. Please check if it is installed.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('WhatsApp launch failed: $e');
+    }
+  }
+
+  Future<void> _makeCall(String phone) async {
+    final url = 'tel:$phone';
+    try {
+      if (await canLaunchUrlString(url)) {
+        await launchUrlString(url);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch dialer.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Call launch failed: $e');
+    }
+  }
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
@@ -407,6 +449,76 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
           ),
           const SizedBox(height: 14),
 
+          // Treatment Plan Progress Card
+          if (!_isEditing && apt.treatmentPlanTotalSessions != null && apt.treatmentPlanTotalSessions! > 0) ...[
+            PremiumCard(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Active Care Plan: ${apt.treatmentPlanTotalSessions} Sessions',
+                              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 14),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              'Session Number: Session ${apt.sessionNumber ?? 1}',
+                              style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withOpacity(0.55)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: cs.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${apt.treatmentPlanTotalSessions! > 0 ? (((apt.sessionNumber ?? 1) / apt.treatmentPlanTotalSessions!) * 100).round() : 0}% Progress',
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: cs.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: apt.treatmentPlanTotalSessions! > 0 ? (apt.sessionNumber ?? 1) / apt.treatmentPlanTotalSessions! : 0.0,
+                      minHeight: 10,
+                      backgroundColor: cs.primary.withOpacity(0.1),
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Completed: ${apt.sessionNumber ?? 1} sessions',
+                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: cs.onSurface.withOpacity(0.65)),
+                      ),
+                      Text(
+                        'Remaining: ${(apt.treatmentPlanTotalSessions! - (apt.sessionNumber ?? 1)).clamp(0, apt.treatmentPlanTotalSessions!)} sessions',
+                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: cs.onSurface.withOpacity(0.65)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+
           // Quick action buttons
           if (!_isEditing) ...[
             Row(children: [
@@ -422,7 +534,16 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
             ]),
             const SizedBox(height: 10),
             Row(children: [
-              _QuickBtn(icon: Icons.summarize_rounded, label: 'All Sessions', color: const Color(0xFFD97706), onTap: _generateAllSessionsPdf),
+              _QuickBtn(icon: Icons.summarize_rounded, label: 'All Sessions PDF', color: const Color(0xFFD97706), onTap: _generateAllSessionsPdf),
+              const SizedBox(width: 10),
+              _QuickBtn(
+                icon: Icons.history_rounded,
+                label: 'Patient History',
+                color: cs.primary,
+                onTap: () {
+                  context.push('/patient-history?name=${Uri.encodeComponent(apt.patientName)}&phone=${Uri.encodeComponent(apt.phoneNumber)}').then((_) => _load());
+                },
+              ),
             ]),
             const SizedBox(height: 16),
             Text('Clinical Assessment & Treatment', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15)),
@@ -576,7 +697,44 @@ class _AppointmentDetailScreenState extends ConsumerState<AppointmentDetailScree
         _DetailRow(icon: Icons.calendar_today_rounded, label: 'Date', value: dateText),
         _DetailRow(icon: Icons.timer_outlined, label: 'Duration', value: '${apt.durationMinutes} minutes'),
         _DetailRow(icon: Icons.medical_services_outlined, label: 'Treatment', value: apt.treatmentType),
-        if (apt.phoneNumber.isNotEmpty) _DetailRow(icon: Icons.phone_outlined, label: 'Phone', value: apt.phoneNumber),
+        if (apt.phoneNumber.isNotEmpty)
+          _DetailRow(
+            icon: Icons.phone_outlined,
+            label: 'Phone',
+            value: apt.phoneNumber,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.phone_rounded, size: 15),
+                  color: cs.primary,
+                  onPressed: () => _makeCall(apt.phoneNumber),
+                  style: IconButton.styleFrom(
+                    padding: const EdgeInsets.all(4),
+                    minimumSize: Size.zero,
+                    backgroundColor: cs.primary.withOpacity(0.08),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.chat_bubble_rounded, size: 15),
+                  color: AppColors.statusConfirmed,
+                  onPressed: () => _launchWhatsApp(
+                    apt.phoneNumber,
+                    apt.patientName,
+                    apt.scheduledAt != null
+                        ? DateFormat('EEEE, d MMM y • hh:mm a').format(apt.scheduledAt!)
+                        : apt.time,
+                  ),
+                  style: IconButton.styleFrom(
+                    padding: const EdgeInsets.all(4),
+                    minimumSize: Size.zero,
+                    backgroundColor: AppColors.statusConfirmed.withOpacity(0.08),
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (apt.email.isNotEmpty) _DetailRow(icon: Icons.mail_outline_rounded, label: 'Email', value: apt.email),
         if (apt.visitReason.isNotEmpty) _DetailRow(icon: Icons.edit_note_rounded, label: 'Reason', value: apt.visitReason),
         const SizedBox(height: 12),
@@ -878,20 +1036,21 @@ class _StatusTimeline extends StatelessWidget {
 }
 
 class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.icon, required this.label, required this.value});
-  final IconData icon; final String label; final String value;
+  const _DetailRow({required this.icon, required this.label, required this.value, this.trailing});
+  final IconData icon; final String label; final String value; final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Icon(icon, size: 17, color: cs.onSurface.withValues(alpha: 0.45)),
         const SizedBox(width: 10),
         SizedBox(width: 68, child: Text(label, style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.5)))),
         const SizedBox(width: 8),
         Expanded(child: Text(value, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500))),
+        if (trailing != null) trailing!,
       ]),
     );
   }

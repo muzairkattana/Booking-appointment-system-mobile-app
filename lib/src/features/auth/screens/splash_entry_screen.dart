@@ -78,12 +78,13 @@ class _SplashEntryScreenState extends State<SplashEntryScreen> with TickerProvid
 
     final storedUser = prefs.getString('local_auth_current_user');
     final pinEnabled = prefs.getBool('security_pin_enabled') ?? false;
+    final alreadyUnlocked = prefs.getBool('security_unlocked') ?? false;
     final hasLocalUser = storedUser != null && storedUser.isNotEmpty;
 
     if (!mounted) return;
     if (!firebaseSignedIn && !hasLocalUser) {
       context.go('/login');
-    } else if (pinEnabled) {
+    } else if (pinEnabled && !alreadyUnlocked) {
       context.go('/security-lock');
     } else {
       context.go('/dashboard');

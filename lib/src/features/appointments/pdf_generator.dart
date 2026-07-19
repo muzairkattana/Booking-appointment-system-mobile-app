@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/appointment.dart';
+import '../../models/payment.dart';
 
 Future<Uint8List> generatePatientReportPdf(Appointment appointment) async {
   final doc = pw.Document();
@@ -1203,6 +1204,221 @@ Future<Uint8List> generateAllSessionsReportPdf(List<Appointment> sessions) async
         );
 
         return content;
+      },
+    ),
+  );
+
+  return doc.save();
+}
+
+Future<Uint8List> generatePaymentReceiptPdf(Payment payment) async {
+  final doc = pw.Document();
+
+  Uint8List? logoBytes;
+  try {
+    logoBytes = (await rootBundle.load('assets/ChatGPT Image Jul 9, 2025, 11_09_56 PM.png')).buffer.asUint8List();
+  } catch (_) {
+    try {
+      logoBytes = (await rootBundle.load('assets/dr-bashir-photo.jpeg')).buffer.asUint8List();
+    } catch (_) {}
+  }
+
+  final clinicName = 'GONSTEAD CHIROPRACTIC TREATMENT';
+  final clinicAddress = 'Tehsil Road, Near Peshawar Model School, Nowshera City, KPK.';
+  final clinicDoctor = 'DR. BASHIR AHMAD';
+  final clinicPhone = '+92 304 6996267';
+  
+  final primaryColor = PdfColor.fromHex('#0E7490');
+  final secondaryColor = PdfColor.fromHex('#0F172A');
+  final borderColor = PdfColor.fromHex('#E2E8F0');
+  final textColor = PdfColor.fromHex('#1E293B');
+  final labelColor = PdfColor.fromHex('#64748B');
+
+  final formattedDate = DateFormat('EEEE, MMMM dd, yyyy').format(payment.paidAt.toLocal());
+  final formattedTime = DateFormat('hh:mm a').format(payment.paidAt.toLocal());
+
+  doc.addPage(
+    pw.Page(
+      pageFormat: PdfPageFormat.a5,
+      margin: const pw.EdgeInsets.all(16),
+      build: (context) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            pw.Container(height: 3, color: primaryColor),
+            pw.SizedBox(height: 6),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(clinicName, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: secondaryColor)),
+                      pw.Text('Specialized Spine & Posture Care', style: pw.TextStyle(fontSize: 6, fontStyle: pw.FontStyle.italic, color: labelColor)),
+                      pw.Text(clinicAddress, style: pw.TextStyle(fontSize: 6, color: labelColor)),
+                      pw.Text('Mob: $clinicPhone', style: pw.TextStyle(fontSize: 6, color: labelColor)),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(width: 8),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text('PAYMENT RECEIPT', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: primaryColor)),
+                    pw.Text('Receipt No: ${payment.id.substring(0, 8).toUpperCase()}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: textColor)),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 6),
+            pw.Divider(height: 1, thickness: 0.5, color: borderColor),
+            pw.SizedBox(height: 10),
+
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#F8FAFC'),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                border: pw.Border.all(color: borderColor, width: 0.5),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                children: [
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text('Billed To:', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: labelColor)),
+                      pw.Text('Date & Time:', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: labelColor)),
+                    ],
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(payment.patientName, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: textColor)),
+                      pw.Text('$formattedDate at $formattedTime', style: pw.TextStyle(fontSize: 8, color: textColor)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 14),
+
+            pw.Table(
+              border: pw.TableBorder.all(color: borderColor, width: 0.5),
+              columnWidths: {
+                0: const pw.FlexColumnWidth(3),
+                1: const pw.FlexColumnWidth(1),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F1F5F9')),
+                  children: [
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.all(6),
+                      child: pw.Text('DESCRIPTION', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: labelColor)),
+                    ),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.all(6),
+                      child: pw.Text('AMOUNT (PKR)', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: labelColor), textAlign: pw.TextAlign.right),
+                    ),
+                  ],
+                ),
+                pw.TableRow(
+                  children: [
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.all(8),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Chiropractic Session Treatment', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: textColor)),
+                          if (payment.note.isNotEmpty) ...[
+                            pw.SizedBox(height: 2),
+                            pw.Text('Notes: ${payment.note}', style: pw.TextStyle(fontSize: 7, color: labelColor)),
+                          ],
+                        ],
+                      ),
+                    ),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.all(8),
+                      child: pw.Text(NumberFormat('#,##0').format(payment.amount), style: pw.TextStyle(fontSize: 8, color: textColor), textAlign: pw.TextAlign.right),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.end,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Row(
+                      mainAxisSize: pw.MainAxisSize.min,
+                      children: [
+                        pw.Text('Total Amount: ', style: pw.TextStyle(fontSize: 7, color: labelColor)),
+                        pw.Text(NumberFormat('PKR #,##0').format(payment.amount), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: textColor)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Row(
+                      mainAxisSize: pw.MainAxisSize.min,
+                      children: [
+                        pw.Text('Amount Paid: ', style: pw.TextStyle(fontSize: 7, color: labelColor)),
+                        pw.Text(NumberFormat('PKR #,##0').format(payment.paidAmount), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: primaryColor)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Row(
+                      mainAxisSize: pw.MainAxisSize.min,
+                      children: [
+                        pw.Text('Remaining Balance: ', style: pw.TextStyle(fontSize: 7, color: labelColor)),
+                        pw.Text(NumberFormat('PKR #,##0').format(payment.amount - payment.paidAmount), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: (payment.amount - payment.paidAmount) > 0 ? PdfColor.fromHex('#DC2626') : PdfColor.fromHex('#16A34A'))),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 14),
+            pw.Divider(height: 1, thickness: 0.5, color: borderColor),
+            pw.SizedBox(height: 8),
+
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Payment Method: ${payment.method}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: textColor)),
+                    pw.Text('Status: ${payment.status.toUpperCase()}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: payment.status.toLowerCase() == 'paid' ? PdfColor.fromHex('#16A34A') : PdfColor.fromHex('#DC2626'))),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Container(
+                      width: 50,
+                      height: 20,
+                      alignment: pw.Alignment.bottomCenter,
+                      child: pw.Divider(height: 1, thickness: 0.5, color: labelColor),
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text('Authorized Signature', style: pw.TextStyle(fontSize: 6, color: labelColor)),
+                  ],
+                ),
+              ],
+            ),
+            pw.Spacer(),
+
+            pw.Center(
+              child: pw.Text('Thank you for choosing Gonstead Chiropractic Treatment!', style: pw.TextStyle(fontSize: 7, fontStyle: pw.FontStyle.italic, color: primaryColor)),
+            ),
+          ],
+        );
       },
     ),
   );

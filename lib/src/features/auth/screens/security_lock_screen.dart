@@ -91,6 +91,9 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
   Future<void> _verifyPin() async {
     await Future.delayed(const Duration(milliseconds: 150));
     if (_enteredPin == _storedPin) {
+      // Mark session as unlocked so splash won't redirect back here
+      final prefs = await AppPreferences.instance.prefs;
+      await prefs.setBool('security_unlocked', true);
       if (mounted) {
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop(true);
@@ -136,6 +139,9 @@ class _SecurityLockScreenState extends ConsumerState<SecurityLockScreen> with Ti
       );
 
       if (authenticated && mounted) {
+        // Mark session as unlocked so splash won't redirect back here
+        final prefs = await AppPreferences.instance.prefs;
+        await prefs.setBool('security_unlocked', true);
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop(true);
         } else {

@@ -386,14 +386,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final totalPending = _payments.fold<double>(0, (s, p) => s + (p.amount - p.paidAmount));
     final totalAll = _payments.fold<double>(0, (s, p) => s + p.amount);
 
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final todayAppointments = _appointments.where((a) {
+      if (a.scheduledAt == null) return false;
+      return DateFormat('yyyy-MM-dd').format(a.scheduledAt!.toLocal()) == todayStr;
+    }).toList()
+      ..sort((a, b) => a.scheduledAt!.compareTo(b.scheduledAt!));
+
     return AppShellScaffold(
       title: 'Dashboard',
       currentRoute: '/dashboard',
       actions: [
         IconButton(
-          icon: const Icon(Icons.analytics_outlined),
-          onPressed: () => context.push('/analytics'),
-          tooltip: 'Analytics',
+          icon: const Icon(Icons.forum_rounded),
+          onPressed: () => context.push('/chat'),
+          tooltip: 'Clinic Chat',
         ),
         IconButton(
           icon: const Icon(Icons.download_rounded),
@@ -446,8 +453,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             const SizedBox(height: 14),
                             _PaymentsQuickViewCard(total: totalAll, collected: totalPaid, pending: totalPending),
                           ],
-                          const SizedBox(height: 18),
-                          _SectionLabel(label: 'Next Appointment'),
+                            const SizedBox(height: 18),
+                            _TodayScheduleTimeline(appointments: todayAppointments, onRefresh: _loadAppointments),
+                            const SizedBox(height: 18),
+                            _SectionLabel(label: 'Next Appointment'),
                           const SizedBox(height: 10),
                           if (_isLoading)
                             const _SkeletonCard()
@@ -541,8 +550,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       const SizedBox(height: 14),
                       _PaymentsQuickViewCard(total: totalAll, collected: totalPaid, pending: totalPending),
                     ],
-                    const SizedBox(height: 18),
-                    _SectionLabel(label: 'Next Appointment'),
+                     const SizedBox(height: 18),
+                     _TodayScheduleTimeline(appointments: todayAppointments, onRefresh: _loadAppointments),
+                     const SizedBox(height: 18),
+                     _SectionLabel(label: 'Next Appointment'),
                     const SizedBox(height: 10),
                     if (_isLoading)
                       const _SkeletonCard()
@@ -755,44 +766,43 @@ class _NextAppointmentCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(appointment.patientName, style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15)),
-                      ),
-                      if (appointment.isEmergency) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEE2E2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
-                          ),
-                          child: Text(
-                            'EMERGENCY',
-                            style: GoogleFonts.poppins(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFFEF4444),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                  Text(appointment.patientName, style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15), maxLines: 1, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 3),
                   Text(date, style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.6))),
                   const SizedBox(height: 3),
-                  Text(appointment.treatmentType, style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.55))),
+                  Text(appointment.treatmentType, style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.55)), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: sBg, borderRadius: BorderRadius.circular(20)),
-              child: Text(appointment.status, style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: sColor)),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: sBg, borderRadius: BorderRadius.circular(20)),
+                  child: Text(appointment.status, style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: sColor)),
+                ),
+                if (appointment.isEmergency) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'EMG',
+                      style: GoogleFonts.poppins(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFEF4444),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -808,25 +818,24 @@ class _QuickActionsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
-    final cols = width > 1000 ? 3 : (width > 720 ? 2 : 3);
-    final isMobile = width <= 720;
+    final cols = width > 1000 ? 4 : (width > 720 ? 3 : 4);
 
     return GridView.count(
       crossAxisCount: cols,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: isMobile ? 0.8 : 1.0,
+      crossAxisSpacing: 8,
+      mainAxisSpacing: 8,
+      childAspectRatio: 1.0,
       children: [
-        _QuickAction(icon: Icons.calendar_month_rounded, label: 'Book Visit', color: const Color(0xFF0A6BE8), onTap: () => context.push('/booking')),
-        _QuickAction(icon: Icons.list_alt_rounded, label: 'Appointments', color: const Color(0xFF6366F1), onTap: () => context.push('/appointments')),
-        _QuickAction(icon: Icons.account_balance_wallet_rounded, label: 'Payments', color: const Color(0xFF00A86B), onTap: () => context.push('/payments')),
+        _QuickAction(icon: Icons.calendar_month_rounded, label: 'Book', color: const Color(0xFF0A6BE8), onTap: () => context.push('/booking')),
+        _QuickAction(icon: Icons.list_alt_rounded, label: 'Visits', color: const Color(0xFF6366F1), onTap: () => context.push('/appointments')),
+        _QuickAction(icon: Icons.account_balance_wallet_rounded, label: 'Pay', color: const Color(0xFF00A86B), onTap: () => context.push('/payments')),
         _QuickAction(icon: Icons.book_rounded, label: 'Notes', color: const Color(0xFFF59E0B), onTap: () => context.push('/notes')),
-        _QuickAction(icon: Icons.calculate_rounded, label: 'Calculator', color: const Color(0xFF8B5CF6), onTap: () => context.push('/calculator')),
-        _QuickAction(icon: Icons.health_and_safety_rounded, label: 'Care Tips', color: const Color(0xFFEF4444), onTap: () => context.push('/care-tips')),
-        _QuickAction(icon: Icons.forum_rounded, label: 'Clinic Chat', color: const Color(0xFF0E7490), onTap: () => context.push('/chat')),
-        _QuickAction(icon: Icons.manage_accounts_rounded, label: 'Staff Portal', color: const Color(0xFF0F7490), onTap: () => context.push('/staff-management')),
+        _QuickAction(icon: Icons.calculate_rounded, label: 'Calc', color: const Color(0xFF8B5CF6), onTap: () => context.push('/calculator')),
+        _QuickAction(icon: Icons.history_rounded, label: 'History', color: const Color(0xFF10B981), onTap: () => context.push('/patient-history')),
+        _QuickAction(icon: Icons.forum_rounded, label: 'Chat', color: const Color(0xFF0E7490), onTap: () => context.push('/chat')),
+        _QuickAction(icon: Icons.manage_accounts_rounded, label: 'Staff', color: const Color(0xFF0F7490), onTap: () => context.push('/staff-management')),
       ],
     );
   }
@@ -1034,43 +1043,32 @@ class _AppointmentTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(appointment.patientName, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14), overflow: TextOverflow.ellipsis),
-                        ),
-                        if (appointment.isEmergency) ...[
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEE2E2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
-                            ),
-                            child: Text(
-                              'EMG',
-                              style: GoogleFonts.poppins(
-                                fontSize: 8,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFFEF4444),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                    Text(appointment.patientName, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14), overflow: TextOverflow.ellipsis, maxLines: 1),
                     const SizedBox(height: 2),
                     Text('${appointment.time}  •  ${appointment.treatmentType}',
                         style: GoogleFonts.poppins(fontSize: 11.5, color: cs.onSurface.withValues(alpha: 0.55)), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              if (appointment.isEmergency) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'EMG',
+                    style: GoogleFonts.poppins(fontSize: 8, fontWeight: FontWeight.w700, color: const Color(0xFFEF4444)),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(color: sBg, borderRadius: BorderRadius.circular(20)),
-                child: Text(appointment.status, style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: sColor)),
+                child: Text(appointment.status, style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: sColor)),
               ),
             ],
           ),
@@ -1181,6 +1179,8 @@ class _UpcomingNotificationBanner extends StatelessWidget {
                       color: const Color(0xFF431407).withOpacity(0.65),
                       fontWeight: FontWeight.w500,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -1244,12 +1244,12 @@ class _PaymentsQuickViewCard extends StatelessWidget {
       height: 36,
       width: 1,
       color: Colors.grey.withOpacity(0.2),
-      margin: const EdgeInsets.symmetric(horizontal: 12),
+      margin: const EdgeInsets.symmetric(horizontal: 6),
     );
   }
 
   Widget _buildStatItem(String label, double amount, Color color) {
-    final fmt = NumberFormat('PKR #,##0', 'en_US');
+    final fmt = NumberFormat('#,##0', 'en_US');
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1263,15 +1263,307 @@ class _PaymentsQuickViewCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            fmt.format(amount),
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: color,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'PKR ${fmt.format(amount)}',
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TodayScheduleTimeline extends StatelessWidget {
+  const _TodayScheduleTimeline({
+    required this.appointments,
+    required this.onRefresh,
+  });
+
+  final List<Appointment> appointments;
+  final VoidCallback onRefresh;
+
+  Future<void> _launchWhatsApp(BuildContext context, String phone, String patientName, String dateStr) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'\s+|-|\(|\)'), '');
+    final message = Uri.encodeComponent(
+        "Hello $patientName, this is a reminder for your chiropractic appointment scheduled on $dateStr at Gonstead Chiropractic Treatment. Please let us know if you need to reschedule. Thank you!");
+    String finalPhone = cleanPhone;
+    if (!cleanPhone.startsWith('+') && !cleanPhone.startsWith('00')) {
+      if (cleanPhone.startsWith('0')) {
+        finalPhone = '+92${cleanPhone.substring(1)}';
+      } else {
+        finalPhone = '+92$cleanPhone';
+      }
+    }
+    final url = "https://wa.me/${finalPhone.replaceAll('+', '')}?text=$message";
+    try {
+      if (await canLaunchUrlString(url)) {
+        await launchUrlString(url, mode: LaunchMode.externalApplication);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch WhatsApp. Please check if it is installed.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('WhatsApp launch failed: $e');
+    }
+  }
+
+  Future<void> _makeCall(BuildContext context, String phone) async {
+    final url = 'tel:$phone';
+    try {
+      if (await canLaunchUrlString(url)) {
+        await launchUrlString(url);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch dialer.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Call launch failed: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (appointments.isEmpty) {
+      return PremiumCard(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.calendar_today_rounded, color: cs.primary, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("No appointments today", style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 14)),
+                  Text("Your schedule is free for the rest of today.", style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withOpacity(0.55))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return PremiumCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.today_rounded, color: cs.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                "Today's Schedule",
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: cs.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  "${appointments.length} Visits",
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: cs.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: appointments.length,
+            itemBuilder: (context, index) {
+              final apt = appointments[index];
+              final timeStr = apt.scheduledAt != null
+                  ? DateFormat('hh:mm a').format(apt.scheduledAt!.toLocal())
+                  : apt.time;
+              final isLast = index == appointments.length - 1;
+              final sColor = statusColor(apt.status);
+
+              return IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Timeline line and bullet
+                    Column(
+                      children: [
+                        Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: sColor,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: sColor.withOpacity(0.4),
+                                blurRadius: 6,
+                              )
+                            ],
+                          ),
+                        ),
+                        if (!isLast)
+                          Expanded(
+                            child: Container(
+                              width: 2,
+                              color: cs.onSurface.withOpacity(0.1),
+                            ),
+                          )
+                        else
+                          const SizedBox(height: 16),
+                      ],
+                    ),
+                    const SizedBox(width: 14),
+                    // Timeline content card
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: InkWell(
+                          onTap: () => context.push('/appointment/${apt.id}').then((_) => onRefresh()),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: cs.onSurface.withOpacity(0.02),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: cs.onSurface.withOpacity(0.05)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 4,
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        children: [
+                                          Text(
+                                            timeStr,
+                                            style: GoogleFonts.poppins(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 13,
+                                              color: cs.primary,
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: sColor.withOpacity(0.12),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              apt.status,
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: sColor,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        apt.patientName,
+                                        style: GoogleFonts.poppins(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        apt.treatmentType,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 11,
+                                          color: cs.onSurface.withOpacity(0.55),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                // Communication actions
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (apt.phoneNumber.isNotEmpty) ...[
+                                      IconButton(
+                                        icon: const Icon(Icons.phone_rounded, size: 16),
+                                        color: cs.primary,
+                                        onPressed: () => _makeCall(context, apt.phoneNumber),
+                                        style: IconButton.styleFrom(
+                                          padding: const EdgeInsets.all(6),
+                                          minimumSize: Size.zero,
+                                          backgroundColor: cs.primary.withOpacity(0.08),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      IconButton(
+                                        icon: const Icon(Icons.chat_bubble_rounded, size: 16),
+                                        color: AppColors.statusConfirmed,
+                                        onPressed: () => _launchWhatsApp(
+                                          context,
+                                          apt.phoneNumber,
+                                          apt.patientName,
+                                          apt.scheduledAt != null
+                                              ? DateFormat('EEE d MMM hh:mm a').format(apt.scheduledAt!)
+                                              : apt.time,
+                                        ),
+                                        style: IconButton.styleFrom(
+                                          padding: const EdgeInsets.all(6),
+                                          minimumSize: Size.zero,
+                                          backgroundColor: AppColors.statusConfirmed.withOpacity(0.08),
+                                        ),
+                                      ),
+                                    ],
+                                    Icon(Icons.chevron_right_rounded, color: cs.onSurface.withOpacity(0.2)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ],
       ),

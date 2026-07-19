@@ -319,6 +319,7 @@ class AuthRepository {
 
     final prefs = await _prefsFuture;
     await prefs.remove(_currentUserKey);
+    await prefs.remove('security_unlocked');
     _cachedUser = null;
     _authStateController.add(null);
   }

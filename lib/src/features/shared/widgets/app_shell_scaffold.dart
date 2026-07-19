@@ -63,7 +63,11 @@ class _AppShellScaffoldState extends State<AppShellScaffold> with WidgetsBinding
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused) {
+      AppPreferences.instance.prefs.then((prefs) {
+        prefs.setBool('security_unlocked', false);
+      });
+    } else if (state == AppLifecycleState.resumed) {
       _checkPinLockOnResume();
     }
   }
@@ -92,8 +96,9 @@ class _AppShellScaffoldState extends State<AppShellScaffold> with WidgetsBinding
 
     final prefs = await AppPreferences.instance.prefs;
     final pinEnabled = prefs.getBool('security_pin_enabled') ?? false;
+    final alreadyUnlocked = prefs.getBool('security_unlocked') ?? false;
 
-    if (pinEnabled) {
+    if (pinEnabled && !alreadyUnlocked) {
       _isLockScreenShowing = true;
       if (!mounted) return;
 
@@ -579,10 +584,16 @@ class _AppDrawer extends StatelessWidget {
                   onTap: () => _navigate(context, '/notes'),
                 ),
                 _DrawerTile(
-                  icon: Icons.health_and_safety_rounded,
-                  label: 'Care Tips',
-                  selected: currentRoute == '/care-tips',
-                  onTap: () => _navigate(context, '/care-tips'),
+                  icon: Icons.history_rounded,
+                  label: 'Patient History',
+                  selected: currentRoute == '/patient-history',
+                  onTap: () => _navigate(context, '/patient-history'),
+                ),
+                _DrawerTile(
+                  icon: Icons.forum_rounded,
+                  label: 'Clinic Chat',
+                  selected: currentRoute == '/chat',
+                  onTap: () => _navigate(context, '/chat'),
                 ),
                 _DrawerTile(
                   icon: Icons.person_rounded,

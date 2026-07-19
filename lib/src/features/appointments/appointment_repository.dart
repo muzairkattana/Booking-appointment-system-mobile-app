@@ -28,6 +28,11 @@ class AppointmentRepository {
   }
 
   Future<List<Appointment>> loadAppointments() async {
+    final now = DateTime.now();
+    if (_cachedAppointments != null && _cachedAt != null && now.difference(_cachedAt!) < _cacheTtl) {
+      return List<Appointment>.unmodifiable(_cachedAppointments!);
+    }
+
     if (_useFirestore) {
       try {
         final snapshot = await FirebaseFirestore.instance
@@ -43,17 +48,12 @@ class AppointmentRepository {
           if (b.scheduledAt == null) return -1;
           return b.scheduledAt!.compareTo(a.scheduledAt!);
         });
-        _cachedAppointments = appointments;
-        _cachedAt = DateTime.now();
+        // Persist to SharedPreferences so it's cached locally
+        await _saveAppointments(appointments);
         return appointments;
       } catch (error) {
         debugPrint('Failed to load appointments from Firestore: $error');
       }
-    }
-
-    final now = DateTime.now();
-    if (_cachedAppointments != null && _cachedAt != null && now.difference(_cachedAt!) < _cacheTtl) {
-      return List<Appointment>.unmodifiable(_cachedAppointments!);
     }
 
     final prefs = await _prefsFuture;
@@ -88,15 +88,17 @@ class AppointmentRepository {
             .collection('appointments')
             .doc(appointment.id)
             .set(appointment.toJson());
-        final current = _cachedAppointments ?? [];
-        _cachedAppointments = [appointment, ...current];
-        return;
       } catch (error) {
         debugPrint('Failed to save appointment to Firestore: $error');
       }
     }
+    // Invalidate the cache to ensure we reload fresh list
+    _cachedAppointments = null;
+    _cachedAt = null;
     final appointments = await loadAppointments();
-    final next = [appointment, ...appointments];
+    // Prevent duplicates in local list if already loaded/updated
+    final filtered = appointments.where((a) => a.id != appointment.id).toList();
+    final next = [appointment, ...filtered];
     await _saveAppointments(next);
   }
 
@@ -130,16 +132,13 @@ class AppointmentRepository {
             .collection('appointments')
             .doc(updatedAppointment.id)
             .set(updatedAppointment.toJson());
-        if (_cachedAppointments != null) {
-          _cachedAppointments = _cachedAppointments!
-              .map((item) => item.id == updatedAppointment.id ? updatedAppointment : item)
-              .toList();
-        }
-        return;
       } catch (error) {
         debugPrint('Failed to update appointment in Firestore: $error');
       }
     }
+    // Invalidate the cache
+    _cachedAppointments = null;
+    _cachedAt = null;
     final appointments = await loadAppointments();
     final next = appointments
         .map((item) => item.id == updatedAppointment.id ? updatedAppointment : item)
@@ -154,16 +153,13 @@ class AppointmentRepository {
             .collection('appointments')
             .doc(appointmentId)
             .delete();
-        if (_cachedAppointments != null) {
-          _cachedAppointments = _cachedAppointments!
-              .where((item) => item.id != appointmentId)
-              .toList();
-        }
-        return;
       } catch (error) {
         debugPrint('Failed to delete appointment in Firestore: $error');
       }
     }
+    // Invalidate the cache
+    _cachedAppointments = null;
+    _cachedAt = null;
     final appointments = await loadAppointments();
     final next = appointments
         .where((item) => item.id != appointmentId)

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:go_router/go_router.dart';
 import '../utils/import_export_service.dart';
 import '../../services/app_preferences.dart';
 
@@ -14,6 +15,8 @@ import '../../theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/repository_providers.dart';
 import '../../services/notification_service.dart';
+import 'package:printing/printing.dart';
+import '../appointments/pdf_generator.dart';
 
 class PaymentScreen extends ConsumerStatefulWidget {
   const PaymentScreen({super.key});
@@ -28,6 +31,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
   final _amountController = TextEditingController();
   final _paidAmountController = TextEditingController();
   final _noteController = TextEditingController();
+  final _searchController = TextEditingController();
+  final _patientFocusNode = FocusNode();
   final _formKey = GlobalKey<FormState>();
   DateTime? _reminderDate;
 
@@ -142,6 +147,12 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
   String _method = 'Cash';
   String _status = 'Paid';
   String _filterStatus = 'All';
+  String _selectedDuration = 'All';
+  String _selectedMethodFilter = 'All';
+  String _searchQuery = '';
+  DateTimeRange? _customDateRange;
+  List<String> _patientSuggestions = [];
+  bool _showFilters = false;
 
   static const _methods = ['Cash', 'Card', 'Bank Transfer', 'JazzCash', 'EasyPaisa'];
   static const _statuses = ['Paid', 'Partial', 'Pending'];
@@ -160,14 +171,46 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
     _amountController.dispose();
     _paidAmountController.dispose();
     _noteController.dispose();
+    _searchController.dispose();
+    _patientFocusNode.dispose();
     _tabController.dispose();
     super.dispose();
   }
 
   Future<void> _loadPayments() async {
     final data = await _repository.loadPayments();
+    List<String> suggestions = [];
+    try {
+      final appointments = await ref.read(appointmentRepositoryProvider).loadAppointments();
+      suggestions = appointments.map((a) => a.patientName).toSet().toList();
+      suggestions.sort();
+    } catch (e) {
+      debugPrint('Error loading suggestions: $e');
+    }
     if (!mounted) return;
-    setState(() { _payments = data; _isLoading = false; });
+    setState(() { 
+      _payments = data; 
+      _patientSuggestions = suggestions;
+      _isLoading = false; 
+    });
+  }
+
+  Future<void> _selectCustomDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDateRange: _customDateRange ?? DateTimeRange(
+        start: DateTime.now().subtract(const Duration(days: 7)),
+        end: DateTime.now(),
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        _customDateRange = picked;
+        _selectedDuration = 'Custom';
+      });
+    }
   }
 
   Future<void> _selectReminderDate(BuildContext context, {void Function(DateTime)? onSelected}) async {
@@ -273,6 +316,23 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
     _loadPayments();
   }
 
+  Future<void> _printReceipt(Payment p) async {
+    try {
+      final bytes = await generatePaymentReceiptPdf(p);
+      await Printing.layoutPdf(
+        onLayout: (format) async => bytes,
+        name: 'Receipt_${p.patientName.replaceAll(' ', '_')}',
+      );
+    } catch (e) {
+      debugPrint('Error printing receipt: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to print receipt: $e')),
+        );
+      }
+    }
+  }
+
   void _viewPaymentDetails(Payment p) {
     final cs = Theme.of(context).colorScheme;
     final fmt = NumberFormat.currency(symbol: 'PKR ');
@@ -309,6 +369,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
           ],
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _printReceipt(p);
+            },
+            child: const Text('Print Receipt', style: TextStyle(color: Colors.teal)),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
@@ -553,9 +620,62 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
     _loadPayments();
   }
 
+  bool _matchesDuration(DateTime date) {
+    if (_selectedDuration == 'All') return true;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final itemDate = DateTime(date.year, date.month, date.day);
+
+    if (_selectedDuration == 'Today') {
+      return itemDate.isAtSameMomentAs(today);
+    }
+    if (_selectedDuration == 'Yesterday') {
+      final yesterday = today.subtract(const Duration(days: 1));
+      return itemDate.isAtSameMomentAs(yesterday);
+    }
+    if (_selectedDuration == '7 Days') {
+      return today.difference(itemDate).inDays <= 7;
+    }
+    if (_selectedDuration == '30 Days') {
+      return today.difference(itemDate).inDays <= 30;
+    }
+    if (_selectedDuration == '6 Months') {
+      return today.difference(itemDate).inDays <= 180;
+    }
+    if (_selectedDuration == '1 Year') {
+      return today.difference(itemDate).inDays <= 365;
+    }
+    if (_selectedDuration == 'Custom' && _customDateRange != null) {
+      final start = DateTime(_customDateRange!.start.year, _customDateRange!.start.month, _customDateRange!.start.day);
+      final end = DateTime(_customDateRange!.end.year, _customDateRange!.end.month, _customDateRange!.end.day).add(const Duration(days: 1));
+      return date.isAfter(start) && date.isBefore(end);
+    }
+    return true;
+  }
+
   List<Payment> get _filteredPayments {
-    if (_filterStatus == 'All') return _payments;
-    return _payments.where((p) => p.status == _filterStatus).toList();
+    var result = _payments;
+    
+    // Duration Filter
+    result = result.where((p) => _matchesDuration(p.paidAt)).toList();
+    
+    // Status Filter
+    if (_filterStatus != 'All') {
+      result = result.where((p) => p.status == _filterStatus).toList();
+    }
+    
+    // Method Filter
+    if (_selectedMethodFilter != 'All') {
+      result = result.where((p) => p.method == _selectedMethodFilter).toList();
+    }
+    
+    // Search Query Filter
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      result = result.where((p) => p.patientName.toLowerCase().contains(query) || p.note.toLowerCase().contains(query)).toList();
+    }
+    
+    return result;
   }
 
   List<Payment> get _dueReminders {
@@ -584,10 +704,61 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
             children: [
               Text('Record New Payment', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 14)),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _patientController,
-                decoration: const InputDecoration(labelText: 'Patient name', prefixIcon: Icon(Icons.person_outline_rounded)),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+              RawAutocomplete<String>(
+                textEditingController: _patientController,
+                focusNode: _patientFocusNode,
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  if (textEditingValue.text.isEmpty) {
+                    return const Iterable<String>.empty();
+                  }
+                  return _patientSuggestions.where((String option) {
+                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                  });
+                },
+                optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4.0,
+                      borderRadius: BorderRadius.circular(12),
+                      color: cs.surface,
+                      child: Container(
+                        width: 320,
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: options.length,
+                          itemBuilder: (BuildContext context, int index) {
+                            final String option = options.elementAt(index);
+                            return InkWell(
+                              onTap: () => onSelected(option),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                child: Text(
+                                  option,
+                                  style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    onFieldSubmitted: (v) => onFieldSubmitted(),
+                    decoration: const InputDecoration(
+                      labelText: 'Patient name',
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  );
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -769,6 +940,24 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
+                              icon: Icon(Icons.print_rounded, size: 16, color: Colors.teal.shade700),
+                              onPressed: () => _printReceipt(p),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Print Receipt',
+                            ),
+                            const SizedBox(width: 10),
+                            IconButton(
+                              icon: Icon(Icons.history_rounded, size: 16, color: cs.primary.withValues(alpha: 0.85)),
+                              onPressed: () {
+                                context.push('/patient-history?name=${Uri.encodeComponent(p.patientName)}');
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Patient History',
+                            ),
+                            const SizedBox(width: 10),
+                            IconButton(
                               icon: Icon(Icons.visibility_outlined, size: 16, color: cs.primary.withValues(alpha: 0.8)),
                               onPressed: () => _viewPaymentDetails(p),
                               padding: EdgeInsets.zero,
@@ -906,35 +1095,247 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
               ),
             ),
           ],
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
             child: Row(
-              children: _filterOptions.map((f) {
-                return GestureDetector(
-                  onTap: () => setState(() => _filterStatus = f),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: _filterStatus == f ? cs.primary : cs.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: _filterStatus == f ? cs.primary : cs.outline.withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      f,
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _filterStatus == f ? Colors.white : cs.onSurface.withOpacity(0.7),
-                      ),
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _searchController,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    decoration: InputDecoration(
+                      hintText: 'Search patient or notes...',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
-                );
-              }).toList(),
+                ),
+                const SizedBox(width: 10),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      style: IconButton.styleFrom(
+                        backgroundColor: _showFilters ? cs.primary.withOpacity(0.12) : cs.surfaceVariant.withOpacity(0.3),
+                        padding: const EdgeInsets.all(12),
+                      ),
+                      icon: Icon(
+                        _showFilters ? Icons.filter_alt_rounded : Icons.filter_alt_outlined,
+                        color: _showFilters ? cs.primary : cs.onSurface.withOpacity(0.7),
+                      ),
+                      onPressed: () => setState(() => _showFilters = !_showFilters),
+                      tooltip: 'Filter Options',
+                    ),
+                    if (_selectedDuration != 'All' || _selectedMethodFilter != 'All' || _filterStatus != 'All')
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: CircleAvatar(
+                          radius: 5,
+                          backgroundColor: cs.primary,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
+          
+          if (_showFilters) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: cs.surfaceVariant.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: cs.outline.withOpacity(0.15)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'ACTIVE FILTERS',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: cs.onSurface.withOpacity(0.55),
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _filterStatus = 'All';
+                            _selectedDuration = 'All';
+                            _selectedMethodFilter = 'All';
+                            _customDateRange = null;
+                          });
+                        },
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          'Clear All',
+                          style: GoogleFonts.poppins(fontSize: 10.5, fontWeight: FontWeight.bold, color: cs.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  // Status Filters
+                  Text(
+                    'Status',
+                    style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: cs.onSurface.withOpacity(0.4)),
+                  ),
+                  const SizedBox(height: 4),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      children: _filterOptions.map((f) {
+                        final isSelected = _filterStatus == f;
+                        return GestureDetector(
+                          onTap: () => setState(() => _filterStatus = f),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: isSelected ? cs.primary : cs.surface,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: isSelected ? cs.primary : cs.outline.withOpacity(0.15)),
+                            ),
+                            child: Text(
+                              f,
+                              style: GoogleFonts.poppins(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                                color: isSelected ? Colors.white : cs.onSurface.withOpacity(0.7),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Duration Filters
+                  Text(
+                    'Time Duration',
+                    style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: cs.onSurface.withOpacity(0.4)),
+                  ),
+                  const SizedBox(height: 4),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      children: ['All', 'Today', 'Yesterday', '7 Days', '30 Days', '6 Months', '1 Year', 'Custom'].map((opt) {
+                        final isSelected = _selectedDuration == opt;
+                        String displayLabel = opt;
+                        if (opt == 'Custom' && _customDateRange != null) {
+                          displayLabel = '${DateFormat('d MMM').format(_customDateRange!.start)} - ${DateFormat('d MMM').format(_customDateRange!.end)}';
+                        }
+                        return GestureDetector(
+                          onTap: () {
+                            if (opt == 'Custom') {
+                              _selectCustomDateRange();
+                            } else {
+                              setState(() {
+                                _selectedDuration = opt;
+                                _customDateRange = null;
+                              });
+                            }
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: isSelected ? cs.primary : cs.surface,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: isSelected ? cs.primary : cs.outline.withOpacity(0.15)),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  displayLabel,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected ? Colors.white : cs.onSurface.withOpacity(0.7),
+                                  ),
+                                ),
+                                if (opt == 'Custom' && isSelected) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.edit_calendar_rounded, size: 10, color: Colors.white),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Method Filters
+                  Text(
+                    'Payment Method',
+                    style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: cs.onSurface.withOpacity(0.4)),
+                  ),
+                  const SizedBox(height: 4),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      children: ['All', ..._methods].map((m) {
+                        final isSelected = _selectedMethodFilter == m;
+                        return GestureDetector(
+                          onTap: () => setState(() => _selectedMethodFilter = m),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: isSelected ? cs.primary : cs.surface,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: isSelected ? cs.primary : cs.outline.withOpacity(0.15)),
+                            ),
+                            child: Text(
+                              m,
+                              style: GoogleFonts.poppins(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: isSelected ? Colors.white : cs.onSurface.withOpacity(0.7),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
           if (useFullHeight) Expanded(child: listContent) else listContent,
         ],
       );
@@ -964,7 +1365,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
                 child: Column(
                   children: [
-                    _PaymentsQuickView(total: totalAll, collected: totalPaid, pending: totalPending),
+                    _PaymentsQuickView(
+                      total: totalAll,
+                      collected: totalPaid,
+                      pending: totalPending,
+                      activeFilter: _filterStatus,
+                      onFilterChanged: (v) => setState(() => _filterStatus = v),
+                    ),
                     const SizedBox(height: 18),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -988,7 +1395,13 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> with SingleTicker
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: _PaymentsQuickView(total: totalAll, collected: totalPaid, pending: totalPending),
+            child: _PaymentsQuickView(
+              total: totalAll,
+              collected: totalPaid,
+              pending: totalPending,
+              activeFilter: _filterStatus,
+              onFilterChanged: (v) => setState(() => _filterStatus = v),
+            ),
           ),
           const SizedBox(height: 12),
           Container(
@@ -1029,16 +1442,20 @@ class _PaymentsQuickView extends StatelessWidget {
     required this.total,
     required this.collected,
     required this.pending,
+    required this.activeFilter,
+    required this.onFilterChanged,
   });
   final double total;
   final double collected;
   final double pending;
+  final String activeFilter;
+  final ValueChanged<String> onFilterChanged;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       decoration: BoxDecoration(
         color: cs.surface,
         borderRadius: BorderRadius.circular(20),
@@ -1053,11 +1470,11 @@ class _PaymentsQuickView extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _buildStatItem(context, 'Total', total, cs.primary),
+          _buildStatItem(context, 'Total', total, cs.primary, 'All'),
           _buildDivider(),
-          _buildStatItem(context, 'Collected', collected, AppColors.statusConfirmed),
+          _buildStatItem(context, 'Collected', collected, AppColors.statusConfirmed, 'Paid'),
           _buildDivider(),
-          _buildStatItem(context, 'Pending', pending, AppColors.statusPending),
+          _buildStatItem(context, 'Pending', pending, AppColors.statusPending, 'Pending'),
         ],
       ),
     );
@@ -1067,37 +1484,66 @@ class _PaymentsQuickView extends StatelessWidget {
     return Container(
       height: 32,
       width: 1,
-      color: Colors.grey.withOpacity(0.2),
-      margin: const EdgeInsets.symmetric(horizontal: 10),
+      color: Colors.grey.withOpacity(0.15),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
     );
   }
 
-  Widget _buildStatItem(BuildContext context, String label, double amount, Color color) {
+  Widget _buildStatItem(BuildContext context, String label, double amount, Color color, String filterValue) {
+    final isSelected = activeFilter == filterValue;
     final fmt = NumberFormat('PKR #,##0', 'en_US');
     return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: color.withOpacity(0.85),
+      child: InkWell(
+        onTap: () => onFilterChanged(filterValue),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? color.withOpacity(0.08) : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? color.withOpacity(0.24) : Colors.transparent,
+              width: 1,
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            fmt.format(amount),
-            style: GoogleFonts.poppins(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    label,
+                    style: GoogleFonts.poppins(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected ? color : color.withOpacity(0.65),
+                    ),
+                  ),
+                  if (isSelected) ...[
+                    const Spacer(),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                    ),
+                  ]
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                fmt.format(amount),
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

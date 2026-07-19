@@ -7,10 +7,11 @@ import '../features/appointments/appointments_list_screen.dart';
 import '../features/analytics/analytics_screen.dart';
 import '../features/auth/screens/login_screen.dart';
 import '../features/calculator/calculator_screen.dart';
-import '../features/care_tips/care_tips_screen.dart';
+
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/notes/clinical_notes_screen.dart';
 import '../features/patient/profile_screen.dart';
+import '../features/patient/patient_history_screen.dart';
 import '../features/payments/payment_screen.dart';
 import '../features/appointments/appointment_detail_screen.dart';
 
@@ -35,6 +36,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/dashboard', name: 'dashboard', builder: (context, state) => const DashboardScreen()),
       GoRoute(path: '/profile', name: 'profile', builder: (context, state) => const PatientProfileScreen()),
       GoRoute(
+        path: '/patient-history',
+        name: 'patientHistory',
+        builder: (context, state) {
+          final name = state.queryParameters['name'] ?? '';
+          final phone = state.queryParameters['phone'] ?? '';
+          return PatientHistoryScreen(patientName: name, phoneNumber: phone);
+        },
+      ),
+      GoRoute(
         path: '/booking',
         name: 'booking',
         builder: (context, state) {
@@ -47,7 +57,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/payments', name: 'payments', builder: (context, state) => const PaymentScreen()),
       GoRoute(path: '/calculator', name: 'calculator', builder: (context, state) => const CalculatorScreen()),
       GoRoute(path: '/notes', name: 'notes', builder: (context, state) => const ClinicalNotesScreen()),
-      GoRoute(path: '/care-tips', name: 'careTips', builder: (context, state) => const CareTipsScreen()),
+
       GoRoute(path: '/security-settings', name: 'securitySettings', builder: (context, state) => const SecuritySettingsScreen()),
       GoRoute(path: '/security-lock', name: 'securityLock', builder: (context, state) => const SecurityLockScreen()),
       GoRoute(path: '/staff-lock', name: 'staffLock', builder: (context, state) => const StaffLockScreen()),

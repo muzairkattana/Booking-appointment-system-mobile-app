@@ -14,6 +14,10 @@ class PaymentRepository {
 
   final Future<SharedPreferences> _prefsFuture;
   static const String _paymentsKey = 'clinic_patient_payments';
+  static const Duration _cacheTtl = Duration(seconds: 30);
+
+  static List<Payment>? _cachedPayments;
+  static DateTime? _cachedAt;
 
   bool get _useFirestore {
     try {
@@ -24,6 +28,11 @@ class PaymentRepository {
   }
 
   Future<List<Payment>> loadPayments() async {
+    final now = DateTime.now();
+    if (_cachedPayments != null && _cachedAt != null && now.difference(_cachedAt!) < _cacheTtl) {
+      return List<Payment>.unmodifiable(_cachedPayments!);
+    }
+
     if (_useFirestore) {
       try {
         final snapshot = await FirebaseFirestore.instance
@@ -33,6 +42,7 @@ class PaymentRepository {
             .map((doc) => Payment.fromJson({...doc.data(), 'id': doc.id}))
             .toList();
         payments.sort((a, b) => b.paidAt.compareTo(a.paidAt));
+        await _savePayments(payments);
         return payments;
       } catch (error) {
         debugPrint('Failed to load payments from Firestore: $error');
@@ -42,13 +52,26 @@ class PaymentRepository {
     final prefs = await _prefsFuture;
     final raw = prefs.getString(_paymentsKey);
     if (raw == null || raw.isEmpty) {
-      return [];
+      _cachedPayments = const [];
+      _cachedAt = now;
+      return _cachedPayments!;
     }
 
     final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
+    final payments = decoded
         .map((entry) => Payment.fromJson(Map<String, dynamic>.from(entry as Map)))
         .toList(growable: false);
+    _cachedPayments = payments;
+    _cachedAt = now;
+    return List<Payment>.unmodifiable(payments);
+  }
+
+  Future<void> _savePayments(List<Payment> payments) async {
+    final prefs = await _prefsFuture;
+    final encoded = jsonEncode(payments.map((item) => item.toJson()).toList());
+    await prefs.setString(_paymentsKey, encoded);
+    _cachedPayments = List<Payment>.unmodifiable(payments);
+    _cachedAt = DateTime.now();
   }
 
   Future<void> savePayment(Payment payment) async {
@@ -58,12 +81,12 @@ class PaymentRepository {
             .collection('payments')
             .doc(payment.id)
             .set(payment.toJson());
-        return;
       } catch (error) {
         debugPrint('Failed to save payment to Firestore: $error');
       }
     }
-    final prefs = await _prefsFuture;
+    _cachedPayments = null;
+    _cachedAt = null;
     final payments = await loadPayments();
     final index = payments.indexWhere((p) => p.id == payment.id);
     final List<Payment> updated;
@@ -73,7 +96,7 @@ class PaymentRepository {
     } else {
       updated = [payment, ...payments];
     }
-    await prefs.setString(_paymentsKey, jsonEncode(updated.map((item) => item.toJson()).toList()));
+    await _savePayments(updated);
   }
 
   Future<void> deletePayment(String id) async {
@@ -83,15 +106,15 @@ class PaymentRepository {
             .collection('payments')
             .doc(id)
             .delete();
-        return;
       } catch (error) {
         debugPrint('Failed to delete payment from Firestore: $error');
       }
     }
-    final prefs = await _prefsFuture;
+    _cachedPayments = null;
+    _cachedAt = null;
     final payments = await loadPayments();
     final updated = payments.where((p) => p.id != id).toList();
-    await prefs.setString(_paymentsKey, jsonEncode(updated.map((item) => item.toJson()).toList()));
+    await _savePayments(updated);
   }
 
   Future<SharedPreferences> getPrefs() async => _prefsFuture;

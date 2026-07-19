@@ -34,6 +34,7 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
   int _totalSessions = 0;
   List<Appointment> _upcomingSessions = [];
   List<Appointment> _pastSessions = [];
+  bool _isDoctor = false;
 
   @override
   void initState() {
@@ -49,12 +50,24 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
     final authState = ref.read(authStateProvider);
     final user = authState.asData?.value ?? AppUser(uid: 'guest', email: 'guest@gonstead.com', displayName: 'Guest Patient', phoneNumber: '+92 300 1234567');
     
-    final filtered = apts.where((a) {
-      final nameMatch = a.patientName.toLowerCase() == user.displayName.toLowerCase();
-      final phoneMatch = user.phoneNumber.isNotEmpty && a.phoneNumber == user.phoneNumber;
-      final emailMatch = user.email.isNotEmpty && a.email.toLowerCase() == user.email.toLowerCase();
-      return nameMatch || phoneMatch || emailMatch;
-    }).toList();
+    final isDoctor = user.displayName.toLowerCase().contains('dr.') ||
+                     user.displayName.toLowerCase().contains('doctor') ||
+                     user.displayName.toLowerCase().contains('staff') ||
+                     user.email.toLowerCase().contains('gonstead') ||
+                     user.email.toLowerCase().contains('admin') ||
+                     user.email.toLowerCase().contains('doctor');
+
+    final List<Appointment> filtered;
+    if (isDoctor) {
+      filtered = apts.where((a) => a.status.toLowerCase() != 'cancelled').toList();
+    } else {
+      filtered = apts.where((a) {
+        final nameMatch = a.patientName.toLowerCase() == user.displayName.toLowerCase();
+        final phoneMatch = user.phoneNumber.isNotEmpty && a.phoneNumber == user.phoneNumber;
+        final emailMatch = user.email.isNotEmpty && a.email.toLowerCase() == user.email.toLowerCase();
+        return nameMatch || phoneMatch || emailMatch;
+      }).toList();
+    }
 
     // Sort by scheduled date
     filtered.sort((a, b) {
@@ -67,9 +80,11 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
     final now = DateTime.now();
     
     Appointment? activePlanApt;
-    try {
-      activePlanApt = filtered.firstWhere((a) => a.treatmentPlanTotalSessions != null && a.treatmentPlanTotalSessions! > 0);
-    } catch (_) {}
+    if (!isDoctor) {
+      try {
+        activePlanApt = filtered.firstWhere((a) => a.treatmentPlanTotalSessions != null && a.treatmentPlanTotalSessions! > 0);
+      } catch (_) {}
+    }
 
     int totalSessions = 0;
     int completedSessions = 0;
@@ -99,6 +114,7 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
       _pastSessions = past;
       _totalAppointments = filtered.length;
       _upcomingAppointments = upcoming.length;
+      _isDoctor = isDoctor;
     });
   }
 
@@ -302,9 +318,7 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
             ]),
           ),
           const SizedBox(height: 18),
-
-          // Patient Details
-          _SectionLabel(label: 'Patient Details'),
+          _SectionLabel(label: _isDoctor ? 'Doctor Details' : 'Patient Details'),
           const SizedBox(height: 10),
           PremiumCard(
             padding: const EdgeInsets.all(18),
@@ -314,37 +328,46 @@ class _PatientProfileScreenState extends ConsumerState<PatientProfileScreen> {
               _InfoRow(icon: Icons.mail_outline_rounded, label: 'Email', value: user.email),
               const Divider(height: 20),
               _InfoRow(icon: Icons.phone_outlined, label: 'Phone', value: user.phoneNumber.isNotEmpty ? user.phoneNumber : 'Not set'),
-              const Divider(height: 20),
-              _InfoRow(icon: Icons.healing_rounded, label: 'Care Type', value: 'Spine & posture correction'),
-              const Divider(height: 20),
-              _InfoRow(icon: Icons.repeat_rounded, label: 'Frequency', value: 'Weekly support plan'),
+              if (!_isDoctor) ...[
+                const Divider(height: 20),
+                _InfoRow(icon: Icons.healing_rounded, label: 'Care Type', value: 'Spine & posture correction'),
+                const Divider(height: 20),
+                _InfoRow(icon: Icons.repeat_rounded, label: 'Frequency', value: 'Weekly support plan'),
+              ] else ...[
+                const Divider(height: 20),
+                _InfoRow(icon: Icons.badge_rounded, label: 'Role', value: 'Attending Practitioner / Admin'),
+                const Divider(height: 20),
+                _InfoRow(icon: Icons.local_hospital_rounded, label: 'Clinic Name', value: 'Gonstead Chiropractic Treatment'),
+              ],
             ]),
           ),
           const SizedBox(height: 18),
 
           // Care team
-          _SectionLabel(label: 'Care Team'),
-          const SizedBox(height: 10),
-          PremiumCard(
-            padding: const EdgeInsets.all(18),
-            child: Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('DR. BASHIR AHMAD', style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 15)),
-                const SizedBox(height: 3),
-                Text('CHIROPRACTIC SPECIALIST', style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.55))),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                  decoration: BoxDecoration(color: AppColors.statusConfirmedBg, borderRadius: BorderRadius.circular(10)),
-                  child: Text('Primary Doctor', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.statusConfirmed)),
-                ),
-              ])),
-            ]),
-          ),
-          const SizedBox(height: 18),
+          if (!_isDoctor) ...[
+            _SectionLabel(label: 'Care Team'),
+            const SizedBox(height: 10),
+            PremiumCard(
+              padding: const EdgeInsets.all(18),
+              child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('DR. BASHIR AHMAD', style: GoogleFonts.poppins(fontWeight: FontWeight.w800, fontSize: 15)),
+                  const SizedBox(height: 3),
+                  Text('CHIROPRACTIC SPECIALIST', style: GoogleFonts.poppins(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.55))),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                    decoration: BoxDecoration(color: AppColors.statusConfirmedBg, borderRadius: BorderRadius.circular(10)),
+                    child: Text('Primary Doctor', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.statusConfirmed)),
+                  ),
+                ])),
+              ]),
+            ),
+            const SizedBox(height: 18),
+          ],
 
           // Treatment Plan Card
-          if (_activePlanApt != null) ...[
+          if (!_isDoctor && _activePlanApt != null) ...[
             _SectionLabel(label: 'Treatment Plan Progress'),
             const SizedBox(height: 10),
             PremiumCard(

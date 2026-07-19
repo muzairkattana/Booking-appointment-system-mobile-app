@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,7 +30,28 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
   @override
   void initState() {
     super.initState();
-    _listenToData();
+    _loadCachedAppointments().then((_) {
+      if (mounted) {
+        _listenToData();
+      }
+    });
+  }
+
+  Future<void> _loadCachedAppointments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedStr = prefs.getString('cached_appointments');
+      if (cachedStr != null && cachedStr.isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(cachedStr);
+        final list = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        setState(() {
+          _appointments = list;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load cached appointments: $e');
+    }
   }
 
   @override
@@ -66,7 +88,7 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
     _appointmentsSubscription = FirebaseFirestore.instance
         .collection('appointments')
         .snapshots()
-        .listen((snapshot) {
+        .listen((snapshot) async {
       if (!mounted) return;
       
       final list = snapshot.docs.map((d) {
@@ -88,6 +110,14 @@ class _StaffAppointmentsScreenState extends State<StaffAppointmentsScreen> {
         _appointments = list;
         _isLoading = false;
       });
+
+      // Save to cache
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_appointments', jsonEncode(list));
+      } catch (e) {
+        debugPrint('Failed to save appointments cache: $e');
+      }
     }, onError: (err) {
       debugPrint('Error listening to appointments: $err');
       setState(() => _isLoading = false);
