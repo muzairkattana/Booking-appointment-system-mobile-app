@@ -40,6 +40,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   List<Payment> _payments = [];
   bool _isLoading = false;
 
+  // NEW VARIABLES:
+  int _totalApts = 0;
+  int _confirmedApts = 0;
+  int _pendingApts = 0;
+  double _totalPaid = 0.0;
+  double _totalPending = 0.0;
+  double _totalAll = 0.0;
+  List<Appointment> _todayAppointments = [];
+
   Future<void> _exportMasterBackup() async {
     try {
       final prefs = await AppPreferences.instance.prefs;
@@ -296,10 +305,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }, SetOptions(merge: true)));
     }
 
+    // THE MATH ADDITION:
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
     if (!mounted) return;
     setState(() {
       _appointments = appointments;
       _payments = payments;
+
+      _totalApts = appointments.length;
+      _confirmedApts = appointments.where((a) => a.status.toLowerCase() == 'confirmed').length;
+      _pendingApts = appointments.where((a) => a.status.toLowerCase() == 'pending').length;
+
+      _totalPaid = payments.fold<double>(0, (s, p) => s + p.paidAmount);
+      _totalPending = payments.fold<double>(0, (s, p) => s + (p.amount - p.paidAmount));
+      _totalAll = payments.fold<double>(0, (s, p) => s + p.amount);
+
+      _todayAppointments = appointments.where((a) {
+        if (a.scheduledAt == null) return false;
+        return DateFormat('yyyy-MM-dd').format(a.scheduledAt!.toLocal()) == todayStr;
+      }).toList()..sort((a, b) => a.scheduledAt!.compareTo(b.scheduledAt!));
+
       _isLoading = false;
     });
   }
@@ -377,21 +403,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final isWide = MediaQuery.of(context).size.width > 720;
 
-    final total = _appointments.length;
-    final confirmed = _appointments.where((a) => a.status.toLowerCase() == 'confirmed').length;
-    final pending = _appointments.where((a) => a.status.toLowerCase() == 'pending').length;
+    // DELETION
     final next = _nextAppointment;
-
-    final totalPaid = _payments.fold<double>(0, (s, p) => s + p.paidAmount);
-    final totalPending = _payments.fold<double>(0, (s, p) => s + (p.amount - p.paidAmount));
-    final totalAll = _payments.fold<double>(0, (s, p) => s + p.amount);
-
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final todayAppointments = _appointments.where((a) {
-      if (a.scheduledAt == null) return false;
-      return DateFormat('yyyy-MM-dd').format(a.scheduledAt!.toLocal()) == todayStr;
-    }).toList()
-      ..sort((a, b) => a.scheduledAt!.compareTo(b.scheduledAt!));
 
     return AppShellScaffold(
       title: 'Dashboard',
@@ -443,18 +456,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           if (!_isLoading) ...[
                             Row(
                               children: [
-                                _MiniStatCard(label: 'Total', value: total, icon: Icons.event_note_rounded, color: cs.primary),
-                                const SizedBox(width: 10),
-                                _MiniStatCard(label: 'Confirmed', value: confirmed, icon: Icons.check_circle_outline_rounded, color: AppColors.statusConfirmed),
-                                const SizedBox(width: 10),
-                                _MiniStatCard(label: 'Pending', value: pending, icon: Icons.hourglass_top_rounded, color: AppColors.statusPending),
+                                _MiniStatCard(label: 'Total', value: _totalApts, icon: Icons.event_note_rounded, color: cs.primary),
+                                _MiniStatCard(label: 'Confirmed', value: _confirmedApts, icon: Icons.check_circle_outline_rounded, color: AppColors.statusConfirmed),
+                                _MiniStatCard(label: 'Pending', value: _pendingApts, icon: Icons.hourglass_top_rounded, color: AppColors.statusPending),
                               ],
                             ),
                             const SizedBox(height: 14),
-                            _PaymentsQuickViewCard(total: totalAll, collected: totalPaid, pending: totalPending),
+                            _PaymentsQuickViewCard(total: _totalAll, collected: _totalPaid, pending: _totalPending),
                           ],
                             const SizedBox(height: 18),
-                            _TodayScheduleTimeline(appointments: todayAppointments, onRefresh: _loadAppointments),
+                           _TodayScheduleTimeline(appointments: _todayAppointments, onRefresh: _loadAppointments),
                             const SizedBox(height: 18),
                             _SectionLabel(label: 'Next Appointment'),
                           const SizedBox(height: 10),
@@ -540,18 +551,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     if (!_isLoading) ...[
                       Row(
                         children: [
-                          _MiniStatCard(label: 'Total', value: total, icon: Icons.event_note_rounded, color: cs.primary),
-                          const SizedBox(width: 10),
-                          _MiniStatCard(label: 'Confirmed', value: confirmed, icon: Icons.check_circle_outline_rounded, color: AppColors.statusConfirmed),
-                          const SizedBox(width: 10),
-                          _MiniStatCard(label: 'Pending', value: pending, icon: Icons.hourglass_top_rounded, color: AppColors.statusPending),
+                          _MiniStatCard(label: 'Total', value: _totalApts, icon: Icons.event_note_rounded, color: cs.primary),
+                          _MiniStatCard(label: 'Confirmed', value: _confirmedApts, icon: Icons.check_circle_outline_rounded, color: AppColors.statusConfirmed),
+                          _MiniStatCard(label: 'Pending', value: _pendingApts, icon: Icons.hourglass_top_rounded, color: AppColors.statusPending),
                         ],
                       ),
                       const SizedBox(height: 14),
-                      _PaymentsQuickViewCard(total: totalAll, collected: totalPaid, pending: totalPending),
+                      _PaymentsQuickViewCard(total: _totalAll, collected: _totalPaid, pending: _totalPending),
                     ],
                      const SizedBox(height: 18),
-                     _TodayScheduleTimeline(appointments: todayAppointments, onRefresh: _loadAppointments),
+                     _TodayScheduleTimeline(appointments: _todayAppointments, onRefresh: _loadAppointments),
                      const SizedBox(height: 18),
                      _SectionLabel(label: 'Next Appointment'),
                     const SizedBox(height: 10),
